@@ -6,6 +6,19 @@
 
 ---
 
+## Implementation Status
+
+The following spec sections are **not yet implemented** and represent planned work:
+
+- **Per-step timeout** (`timeout` config key, `_withTimeout` helper) — spec section: Per-Step Timeout
+- **Static result collector** (`CTGTest._results`) — spec section: Static Result Collector
+- **CI exit semantics** (exit code 1 on test fail/error) — spec section: Exit Codes
+- **CLI `--timeout` flag** — spec section: `--timeout` Validation
+
+All other spec sections are implemented and tested.
+
+---
+
 ## Design Doc Divergences
 
 This spec intentionally diverges from the design doc in the following areas:
@@ -421,7 +434,7 @@ static formatValue(value)
 static MAX_CHAIN_DEPTH = 64;
 static MAX_NESTING_DEPTH = 128;
 
-static VALID_CONFIG_KEYS = ["output", "haltOnFailure", "strict", "trace", "debug", "formatter"];
+static VALID_CONFIG_KEYS = ["output", "haltOnFailure", "strict", "trace", "debug", "formatter", "timeout"];
 static VALID_OUTPUT_MODES = ["console", "return", "return-json", "json", "junit"];
 static BOOLEAN_CONFIG_KEYS = ["haltOnFailure", "strict", "trace", "debug"];
 
@@ -431,7 +444,8 @@ static DEFAULT_CONFIG = {
     strict: true,
     trace: false,
     debug: false,
-    formatter: null
+    formatter: null,
+    timeout: 5000
 };
 ```
 
@@ -576,6 +590,7 @@ Validation rules (design doc ref: Config Key Validation through Formatter Valida
 - `output` must be in `VALID_OUTPUT_MODES`
 - `haltOnFailure`, `strict`, `trace`, `debug` must be `typeof === "boolean"`
 - `formatter` must be `null` or a class/constructor with a static `format` method
+- `timeout` must be `typeof === "number"`, finite, and `>= 0`. The value is normalized via `Math.trunc` and the truncated integer is stored back into the resolved config before execution. Non-numeric, `NaN`, `Infinity`, or negative-after-truncation values throw `INVALID_CONFIG`. `0` disables timeout enforcement.
 
 **Formatter resolution:** In JS, the caller passes the formatter class directly
 (not a string path). The config validator checks that the value is `null` or
@@ -663,6 +678,90 @@ receive a stable structure regardless of status:
 `"error"` and the exception populated. The `duration_ms` reflects the predicate
 execution time.
 
+#### Per-Step Timeout
+
+When `config.timeout` is a positive integer, every `await`ed callable (step fn,
+error handler, skip predicate) is wrapped in a `Promise.race` against a timer.
+The implementation uses a helper method:
+
+```javascript
+// :: ((*) -> *|PROMISE(*)), *, STRING, STRING, INT -> PROMISE(*)
+// Races callable against a timeout timer. kind and stepName are for error context.
+async _withTimeout(callable, arg, kind, stepName, timeoutMs)
+```
+
+Internally:
+
+```javascript
+const callablePromise = Promise.resolve(callable(arg));
+if (timeoutMs <= 0) return callablePromise;
+
+let timer;
+const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(
+        () => reject(new CTGTestError("INVALID_STEP",
+            `Step '${stepName}' ${kind} timed out after ${timeoutMs}ms`,
+            { step: stepName, timeout: timeoutMs, kind })),
+        timeoutMs
+    );
+});
+
+try {
+    const result = await Promise.race([callablePromise, timeoutPromise]);
+    clearTimeout(timer);
+    return result;
+} catch (err) {
+    clearTimeout(timer);
+    // Attach a sink catch to the original promise so late rejections
+    // do not produce unhandled rejection noise
+    callablePromise.catch(() => {});
+    throw err;
+}
+```
+
+**Unhandled rejection mitigation:** After timeout, the original callable's
+promise may still reject. A no-op `.catch(() => {})` is attached to the
+callable promise in the timeout path so that late rejections are silently
+swallowed rather than surfacing as unhandled rejections. This catch is only
+attached after timeout — on normal completion, the callable's rejection
+propagates normally through the error handling path.
+
+**Timeout error payload:**
+
+On timeout, the error result includes:
+- `status`: `"error"`
+- `message`: `"Step '{stepName}' {kind} timed out after {N}ms"` — where
+  `kind` is one of `"fn"`, `"errorHandler"`, or `"predicate"`
+- `exception`: formatted `CTGTestError` with:
+  - `class`: `"CTGTestError"`
+  - `code`: `1000` (INVALID_STEP)
+  - `message`: same as result message
+  - `data`: `{ step: "{stepName}", timeout: {N}, kind: "{kind}" }`
+- `duration_ms`: reflects the timeout duration (approximately equal to
+  the configured timeout value)
+- Type-specific shape preserved (assert results include `actual: null`,
+  `expected`, etc.)
+
+The timer is cleared via `clearTimeout` on normal completion to prevent
+leaked timers.
+
+When `config.timeout` is `0`, no timeout enforcement is applied — callables
+are `await`ed directly.
+
+**Scope — timeout applies to these async callables only:**
+- Step fn (`stage`, `assert`, `assert-any`) — `kind: "fn"`
+- Error handlers — `kind: "errorHandler"`
+- Skip predicates — `kind: "predicate"`
+
+**Timeout does NOT apply to:**
+- Validation (synchronous — `_validateConfig`, `_validateSteps`, `_validateSkips`)
+- Comparison (`compare()` and `_looseDeepEqual` are synchronous)
+- Chain depth checks
+- Chain recursion as a whole (individual steps within the chain are timed
+  independently)
+- `_snapshotSubject` (synchronous)
+- Formatter `format()` calls (synchronous)
+
 ---
 
 ```javascript
@@ -698,9 +797,21 @@ equality built-in. Rules for specific types:
 | `Array` | Index-by-index recursive comparison, length must match |
 | Plain objects / class instances | Own enumerable properties compared recursively, `==` at leaf primitives |
 
-Loose mode uses a `WeakSet` for cycle detection and a depth counter capped
-at `MAX_NESTING_DEPTH` (128). Cycles throw `CTGTestError(INVALID_STEP)`.
-Depth exceeding 128 throws `CTGTestError(INVALID_STEP)`.
+Loose mode uses **pair-path tracking** for cycle detection: an array of
+`[actual, expected]` pairs representing the current traversal path. Before
+recursing into an object pair, the path is checked for a matching pair
+(same references). If found, the comparison is cyclic and throws
+`CTGTestError(INVALID_STEP)`. Pairs are pushed before recursing and popped
+after returning (backtracking), so shared references that appear in
+sibling branches are not falsely flagged as cycles. A depth counter capped
+at `MAX_NESTING_DEPTH` (128) provides a secondary guard — depth exceeding
+128 throws `CTGTestError(INVALID_STEP)`.
+
+**Category gating:** Before falling through to generic object-key comparison,
+loose mode checks that both values belong to the same object category.
+Date, RegExp, typed arrays, DataView, and Array are compared using their
+type-specific rules only when both sides match. If one side is a special
+type and the other is not, the comparison returns `false` immediately.
 
 ---
 
@@ -926,8 +1037,12 @@ Node.js executable script with `#!/usr/bin/env node` shebang.
 1. Parse `process.argv` for flags
 2. Set shared configuration via `CTGTest.setCliConfig(parsedConfig)`
 3. Discover test files (see Test File Discovery)
-4. For each test file: dynamically `await import(pathToFileURL(absPath).href)` using `node:url`'s `pathToFileURL` (file imports `CTGTest`, calls `getCliConfig()` to pick up CLI settings, builds and starts tests). Using `pathToFileURL` avoids platform edge cases with Windows drive letters and special characters in paths.
-5. Exit with `process.exit(1)` if any file failed to load or framework threw `RUNNER_ERROR`
+4. For each test file:
+   a. Reset `CTGTest._results = []`
+   b. Dynamically `await import(pathToFileURL(absPath).href)` using `node:url`'s `pathToFileURL` (file imports `CTGTest`, calls `getCliConfig()` to pick up CLI settings, builds and starts tests). Using `pathToFileURL` avoids platform edge cases with Windows drive letters and special characters in paths.
+   c. If import threw → mark file as failed
+   d. Check `CTGTest._results` for any `fail` or `error` status → mark as failed
+5. Exit with `process.exit(1)` if any file failed to load, any test reported `fail` or `error` status, or framework threw `RUNNER_ERROR`. Exit `0` otherwise.
 
 ### Flags
 
@@ -937,17 +1052,92 @@ Node.js executable script with `#!/usr/bin/env node` shebang.
 | `--no-halt` | `haltOnFailure: false` | Continue on failures |
 | `--loose` | `strict: false` | Use loose comparison |
 | `--trace` | `trace: true` | Include stack traces |
+| `--timeout=N` | `timeout: N` | Per-step timeout in ms (0 = disabled) |
 | `--help` | — | Show usage |
+
+#### `--timeout` Validation
+
+- Missing value (`--timeout` with no `=N`): ignored, default applies
+- Non-numeric (`--timeout=abc`): emit warning to stderr, use default
+- Negative (`--timeout=-1`): emit warning to stderr, use default
+- Non-integer float (`--timeout=1.5`): truncated to integer via `Math.trunc`
+  before any further validation. Truncation is silent (no warning) since the
+  intent is clear. The truncated value is then subject to the same rules as
+  any integer (e.g., `--timeout=0.7` truncates to `0`, which disables timeout).
+- Zero (`--timeout=0`): valid, disables timeout enforcement
+
+CLI validation is intentionally lenient (warn + fallback to default) since
+the runner is a user-facing entry point. `_validateConfig` inside `start()`
+is strict (throw `INVALID_CONFIG`) since programmatic callers should get
+immediate feedback on bad config values. These are separate validation paths.
+
+**Precedence:** CLI config is a baseline. Test files that pass their own
+`timeout` in the config object to `start()` override the CLI value for that
+call. `start()` merges caller config over defaults — CLI config is only used
+when the test file spreads `CTGTest.getCliConfig()` into its config object.
 
 ### Exit Codes
 
-- `0` — all test files executed successfully
-- `1` — a test file failed to load or framework threw runner-level error
+- `0` — all test files executed and all tests passed
+- `1` — a test file failed to load, framework threw runner-level error, or any test reported `fail` or `error` status
 
-Exit codes reflect runner-level failures only, not individual test results.
-Test pass/fail outcomes are communicated via the output formatters. The runner's
-job is to execute test files — individual test results are the caller's
-responsibility to interpret from the output.
+The runner inspects the report status from each `start()` call via a static
+result collector on `CTGTest`. If any report has a status of `fail` or `error`,
+the runner exits with code `1`.
+
+#### Static Result Collector
+
+`CTGTest` maintains a static result array that `start()` populates automatically.
+This enables the runner to track test outcomes regardless of output mode, without
+requiring test files to change their code for CI.
+
+```javascript
+// On CTGTest class:
+static _results = [];
+
+// At end of start(), before delivery:
+CTGTest._results.push({ name: this._name, status: report.status });
+```
+
+Each entry records:
+- `name` — the test name passed to `init()`
+- `status` — the aggregate report status (`"pass"`, `"fail"`, `"error"`, `"recovered"`, `"skip"`)
+
+**Lifecycle and reset boundaries:**
+
+The runner resets `CTGTest._results` to `[]` **before each file import**.
+This creates a clean per-file window:
+
+```javascript
+for (const file of files) {
+    CTGTest._results = [];
+    try {
+        await import(pathToFileURL(file).href);
+    } catch (err) { ... }
+    // Check _results for this file
+    for (const result of CTGTest._results) {
+        if (result.status === "fail" || result.status === "error") {
+            hadFailure = true;
+        }
+    }
+}
+```
+
+This ensures:
+- Results from file A don't leak into file B's check
+- Multiple `start()` calls within one file are all captured
+- Results are attributed to the file that produced them by position
+  in the runner's file loop (no explicit file tagging needed)
+
+`_results` is **internal and unstable** — it exists solely for runner-to-framework
+communication. Test files must not read, modify, or depend on it. Its structure,
+naming, and behavior may change without notice. It is not part of the public API
+and carries no stability guarantees.
+
+When `start()` is called outside the CLI runner (e.g., in self-tests or
+programmatic usage), `_results` still accumulates as a side effect. This has
+no effect on `start()`'s return value or output behavior. External callers
+should not rely on `_results` for any purpose.
 
 ### Test File Discovery
 
@@ -976,7 +1166,9 @@ yargs/commander).
 
 ## Conformance Test Traceability
 
-Every conformance test case from the design doc maps to this implementation as follows:
+Every conformance test case from the design doc maps to this implementation as follows.
+Features listed in the Implementation Status section are excluded from this table
+until implemented.
 
 | Design Doc Section | JS Mechanism |
 |---|---|
@@ -1002,9 +1194,15 @@ Per design doc compatibility policy: "If a method or behavior is not in this doc
 
 - No parallel execution (pipeline is sequential; async is for awaiting individual steps)
 - No separate `asyncAssert` / `asyncStage` methods (uniform `await` on all callables)
-- No assertion matchers
+- No assertion matchers or expect-style API
 - No `on`/`otherwise` on CTGTestError
-- No test fixtures or setup/teardown hooks
-- No mocking/stubbing
-- No watch mode
-- No code coverage integration
+- No test fixtures or setup/teardown hooks (beforeAll/afterEach/etc.)
+- No mocking/stubbing/spies
+- No watch mode or changed-files rerun
+- No code coverage integration (use external tools like `c8`)
+- No describe/it test registry or tagging — pipeline composition via `chain()` serves this role
+- No process isolation or worker parallelism — sequential single-process execution
+- No AbortSignal passed to callables — timeout races the promise but cannot cancel it
+- No per-step timeout override — `timeout` is config-level only
+- No TypeScript-native pipeline or browser targets
+- No plugin API for reporters — custom formatters passed via `formatter` config key
