@@ -1,0 +1,114 @@
+#!/usr/bin/env node
+
+import { readdirSync, statSync } from "node:fs";
+import { resolve, basename } from "node:path";
+import { pathToFileURL } from "node:url";
+import CTGTest from "../src/CTGTest.js";
+
+const args = process.argv.slice(2);
+
+// ── Help ─────────────────────────────────────────────────────
+
+if (args.includes("--help")) {
+    process.stdout.write(`Usage: ctg-test [options] [files...]
+
+Options:
+  --format=MODE   Output mode (console, json, junit)
+  --no-halt       Continue on failures
+  --loose         Use loose comparison
+  --trace         Include stack traces
+  --help          Show this help
+`);
+    process.exit(0);
+}
+
+// ── Parse flags ──────────────────────────────────────────────
+
+const config = {};
+const positional = [];
+
+for (const arg of args) {
+    if (arg.startsWith("--format=")) {
+        config.output = arg.slice("--format=".length);
+    } else if (arg === "--no-halt") {
+        config.haltOnFailure = false;
+    } else if (arg === "--loose") {
+        config.strict = false;
+    } else if (arg === "--trace") {
+        config.trace = true;
+    } else if (!arg.startsWith("--")) {
+        positional.push(arg);
+    }
+}
+
+CTGTest.setCliConfig(config);
+
+// ── File discovery ───────────────────────────────────────────
+
+let files = [];
+
+if (positional.length > 0) {
+    const seen = new Set();
+    for (const arg of positional) {
+        const abs = resolve(arg);
+        try {
+            const stat = statSync(abs);
+            if (stat.isDirectory()) {
+                process.stderr.write(`Warning: directory arguments not supported, skipping: ${arg}\n`);
+                continue;
+            }
+        } catch {
+            // File doesn't exist — let import fail with a clear error
+        }
+        if (!seen.has(abs)) {
+            seen.add(abs);
+            files.push(abs);
+        }
+    }
+} else {
+    files = discoverTests(process.cwd());
+}
+
+function discoverTests(cwd) {
+    let found = scanDir(cwd);
+    if (found.length === 0) {
+        const testsDir = resolve(cwd, "tests");
+        try {
+            statSync(testsDir);
+            found = scanDir(testsDir);
+        } catch {
+            // tests/ doesn't exist
+        }
+    }
+    return found.sort();
+}
+
+function scanDir(dir) {
+    const results = [];
+    try {
+        const entries = readdirSync(dir);
+        for (const entry of entries) {
+            if (entry.endsWith("Test.js")) {
+                results.push(resolve(dir, entry));
+            }
+        }
+    } catch {
+        // Can't read directory
+    }
+    return results;
+}
+
+// ── Execute ──────────────────────────────────────────────────
+
+let hadError = false;
+
+for (const file of files) {
+    try {
+        await import(pathToFileURL(file).href);
+    } catch (err) {
+        process.stderr.write(`Failed to load ${file}: ${err.message}\n`);
+        hadError = true;
+    }
+}
+
+process.exit(hadError ? 1 : 0);

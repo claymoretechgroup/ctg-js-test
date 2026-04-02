@@ -626,6 +626,30 @@ await selfTest("INVALID_SKIP non-function predicate", async () => {
     }
 });
 
+// ── Chained Test Validation ──────────────────────────────────
+
+await selfTest("invalid child chain definition caught before execution", async () => {
+    const badChild = CTGTest.init("child").stage("  ", (x) => x); // empty step name
+    try {
+        await CTGTest.init("parent").chain("c", badChild).start(1, { output: "return-json" });
+        return "no throw";
+    } catch (e) {
+        return e instanceof CTGTestError && e.code === CTGTestError.ERROR_TYPES.INVALID_STEP;
+    }
+});
+
+await selfTest("invalid child chain skip caught before execution", async () => {
+    const badChild = CTGTest.init("child")
+        .stage("s", (x) => x)
+        .skip("nonexistent");
+    try {
+        await CTGTest.init("parent").chain("c", badChild).start(1, { output: "return-json" });
+        return "no throw";
+    } catch (e) {
+        return e instanceof CTGTestError && e.code === CTGTestError.ERROR_TYPES.INVALID_SKIP;
+    }
+});
+
 // ── CTGTestError Lookup ──────────────────────────────────────
 
 await selfTest("lookup string to int", async () =>
@@ -908,6 +932,23 @@ await selfTest("loose: typed array element-by-element", async () => {
     return r.status === "pass";
 });
 
+await selfTest("loose: DataView compared by content not identity", async () => {
+    const buf1 = new ArrayBuffer(3);
+    const buf2 = new ArrayBuffer(3);
+    const dv1 = new DataView(buf1);
+    const dv2 = new DataView(buf2);
+    dv1.setUint8(0, 1); dv1.setUint8(1, 2); dv1.setUint8(2, 3);
+    dv2.setUint8(0, 1); dv2.setUint8(1, 2); dv2.setUint8(2, 3);
+    const pass = await CTGTest.init("dv match")
+        .assert("match", (x) => x, dv2)
+        .start(dv1, { output: "return-json", strict: false });
+    dv2.setUint8(2, 99);
+    const fail = await CTGTest.init("dv mismatch")
+        .assert("mismatch", (x) => x, dv2)
+        .start(dv1, { output: "return-json", strict: false });
+    return pass.status === "pass" && fail.status === "fail";
+});
+
 await selfTest("loose: nested object with type coercion", async () => {
     const r = await CTGTest.init("nested loose")
         .assert("nested match", (x) => x, { a: "1", b: { c: "2" } })
@@ -923,6 +964,78 @@ await selfTest("loose: array index-by-index with length check", async () => {
         .assert("length mismatch", (x) => x, [1, 2, 3])
         .start([1, 2], { output: "return-json", strict: false });
     return pass.status === "pass" && fail.status === "fail";
+});
+
+await selfTest("loose: shared reference non-cyclic does not false-flag", async () => {
+    const shared = { x: 1 };
+    const a = { left: shared, right: shared };
+    const b = { left: shared, right: shared };
+    const r = await CTGTest.init("shared ref")
+        .assert("match", (x) => x, b)
+        .start(a, { output: "return-json", strict: false });
+    return r.status === "pass";
+});
+
+await selfTest("loose: symmetric cycle detected as error", async () => {
+    const a = { name: "a" };
+    const b = { name: "b" };
+    a.ref = b;
+    b.ref = a;
+    const a2 = { name: "a" };
+    const b2 = { name: "b" };
+    a2.ref = b2;
+    b2.ref = a2;
+    const r = await CTGTest.init("sym cycle loose")
+        .assert("cmp", (x) => x, a2)
+        .start(a, { output: "return-json", strict: false });
+    return r.steps[0].status === "error";
+});
+
+await selfTest("loose: asymmetric structure mismatch fails not crashes", async () => {
+    const a = { name: "a" };
+    a.self = a; // cycle in actual
+    const b = { name: "a", self: { name: "a", self: {} } }; // finite in expected
+    const r = await CTGTest.init("asym cycle")
+        .assert("cmp", (x) => x, b)
+        .start(a, { output: "return-json", strict: false });
+    // Structural mismatch resolves as fail (key count differs) before cycle/depth triggers
+    return r.steps[0].status === "fail" || r.steps[0].status === "error";
+});
+
+await selfTest("loose: empty array does not equal empty object", async () => {
+    const r = await CTGTest.init("arr vs obj")
+        .assert("cmp", (x) => x, {})
+        .start([], { output: "return-json", strict: false });
+    return r.status === "fail";
+});
+
+await selfTest("loose: object does not equal array", async () => {
+    const r = await CTGTest.init("obj vs arr")
+        .assert("cmp", (x) => x, [1, 2])
+        .start({ 0: 1, 1: 2 }, { output: "return-json", strict: false });
+    return r.status === "fail";
+});
+
+await selfTest("loose: Date does not equal plain object", async () => {
+    const d = new Date("2025-01-01T00:00:00Z");
+    const r = await CTGTest.init("date vs obj")
+        .assert("cmp", (x) => x, {})
+        .start(d, { output: "return-json", strict: false });
+    return r.status === "fail";
+});
+
+await selfTest("loose: RegExp does not equal plain object", async () => {
+    const r = await CTGTest.init("regex vs obj")
+        .assert("cmp", (x) => x, {})
+        .start(/abc/, { output: "return-json", strict: false });
+    return r.status === "fail";
+});
+
+await selfTest("loose: typed array does not equal plain object", async () => {
+    const r = await CTGTest.init("typed vs obj")
+        .assert("cmp", (x) => x, {})
+        .start(new Uint8Array([1]), { output: "return-json", strict: false });
+    return r.status === "fail";
 });
 
 // ── Strict Comparison: NaN ───────────────────────────────────
@@ -973,6 +1086,10 @@ await selfTest("formatValue: BigInt", async () =>
 
 await selfTest("formatValue: string", async () =>
     CTGTestResult.formatValue("hello") === "'hello'"
+);
+
+await selfTest("formatValue: string with quotes and backslashes", async () =>
+    CTGTestResult.formatValue("a'b\\c") === "'a\\'b\\\\c'"
 );
 
 await selfTest("formatValue: array", async () =>
@@ -1262,6 +1379,16 @@ await selfTest("JunitFormatter maps failure to failure element", async () => {
         && output.includes("expected &#39;want&#39; but got &#39;got&#39;");
 });
 
+await selfTest("JunitFormatter assert-any failure includes candidates", async () => {
+    const report = CTGTestResult.report("junit assertAny fail", [
+        CTGTestResult.assertAnyResult("multi", "fail", 1, 99, [1, 2, 3], "no match"),
+    ]);
+    const output = CTGTestJunitFormatter.format(report);
+    return output.includes("<failure")
+        && output.includes("Expected any of:")
+        && output.includes("99");
+});
+
 await selfTest("JunitFormatter maps error to error element", async () => {
     const report = CTGTestResult.report("junit err", [
         CTGTestResult.stepResult("stage", "broken", "error", 1,
@@ -1341,6 +1468,21 @@ await selfTest("FORMATTER_ERROR constructable with data", async () => {
         && e.code === 2000
         && e.msg === "test wrap"
         && e.data.key === "val";
+});
+
+await selfTest("FORMATTER_ERROR when formatter returns non-string", async () => {
+    class BadReturnFormatter {
+        static format() { return { not: "a string" }; }
+    }
+    try {
+        await CTGTest.init("bad fmt return")
+            .assert("p", (x) => x, 1)
+            .start(1, { output: "return", formatter: BadReturnFormatter });
+        return "no throw";
+    } catch (e) {
+        return e instanceof CTGTestError
+            && e.code === CTGTestError.ERROR_TYPES.FORMATTER_ERROR;
+    }
 });
 
 // ── Debug Config ─────────────────────────────────────────────
