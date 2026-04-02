@@ -1,0 +1,14 @@
+{
+    "name": "ctg-js-test",
+    "version": "1.0.0",
+    "type": "module",
+    "exports": {
+        ".": "./src/CTGTest.js"
+    },
+    "bin": {
+        "ctg-test": "./bin/ctg-test"
+    },
+    "scripts": {
+        "test": "node tests/SelfTest.js"
+    }
+}
