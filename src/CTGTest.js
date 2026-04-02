@@ -1,18 +1,24 @@
-import { isDeepStrictEqual } from "node:util";
-import { performance } from "node:perf_hooks";
-import CTGTestError from "./CTGTestError.js";
-import CTGTestResult from "./CTGTestResult.js";
-import CTGTestStep from "./CTGTestStep.js";
-import CTGTestConsoleFormatter from "./formatters/CTGTestConsoleFormatter.js";
-import CTGTestJsonFormatter from "./formatters/CTGTestJsonFormatter.js";
-import CTGTestJunitFormatter from "./formatters/CTGTestJunitFormatter.js";
+import { isDeepStrictEqual } from "node:util"; // Deep strict equality comparison
+import { performance } from "node:perf_hooks"; // High-resolution timing
 
+import CTGTestError from "./CTGTestError.js"; // Typed error class
+import CTGTestResult from "./CTGTestResult.js"; // Result factories and utilities
+import CTGTestStep from "./CTGTestStep.js"; // Step value object
+import CTGTestConsoleFormatter from "./formatters/CTGTestConsoleFormatter.js"; // Console output
+import CTGTestJsonFormatter from "./formatters/CTGTestJsonFormatter.js"; // JSON output
+import CTGTestJunitFormatter from "./formatters/CTGTestJunitFormatter.js"; // JUnit XML output
+
+// Sequential test pipeline engine with async execution, comparison, and delivery
 export default class CTGTest {
+
+    /* Static Fields */
 
     static MAX_CHAIN_DEPTH = 64;
     static MAX_NESTING_DEPTH = 128;
 
-    static VALID_CONFIG_KEYS = ["output", "haltOnFailure", "strict", "trace", "debug", "formatter"];
+    static VALID_STEP_TYPES = new Set(["stage", "assert", "assert-any", "chain"]);
+
+    static VALID_CONFIG_KEYS = ["output", "haltOnFailure", "strict", "trace", "debug", "formatter", "timeout"];
     static VALID_OUTPUT_MODES = ["console", "return", "return-json", "json", "junit"];
     static BOOLEAN_CONFIG_KEYS = ["haltOnFailure", "strict", "trace", "debug"];
 
@@ -22,58 +28,80 @@ export default class CTGTest {
         strict: true,
         trace: false,
         debug: false,
-        formatter: null
+        formatter: null,
+        timeout: 5000
     };
 
     static _cliConfig = null;
+    static _results = [];
 
+    // CONSTRUCTOR :: STRING -> this
+    // Creates a new test definition with the given name.
     constructor(name) {
         this._name = name.trim();
         this._steps = [];
         this._skips = [];
     }
 
+    /**
+     *
+     * Properties
+     *
+     */
+
+    // GETTER :: VOID -> STRING
     get name() { return this._name; }
+
+    // GETTER :: VOID -> [ctgTestStep]
     get steps() { return this._steps; }
+
+    // GETTER :: VOID -> [OBJECT]
     get skips() { return this._skips; }
 
-    static init(name) {
-        return new this(name);
-    }
+    /**
+     *
+     * Instance Methods
+     *
+     */
 
-    static setCliConfig(config) {
-        CTGTest._cliConfig = config;
-    }
-
-    static getCliConfig() {
-        return CTGTest._cliConfig || {};
-    }
-
+    // :: STRING, (* -> *|PROMISE(*)), ((Error) -> *|PROMISE(*))? -> this
+    // Adds a stage step. Returns self for chaining.
     stage(name, fn, errorHandler = null) {
         this._steps.push(new CTGTestStep("stage", name, fn, null, errorHandler));
         return this;
     }
 
+    // :: STRING, (* -> *|PROMISE(*)), *, ((Error) -> *|PROMISE(*))? -> this
+    // Adds an assert step. Returns self for chaining.
     assert(name, fn, expected, errorHandler = null) {
         this._steps.push(new CTGTestStep("assert", name, fn, expected, errorHandler));
         return this;
     }
 
+    // :: STRING, (* -> *|PROMISE(*)), [*], ((Error) -> *|PROMISE(*))? -> this
+    // Adds an assert-any step. Returns self for chaining.
     assertAny(name, fn, candidates, errorHandler = null) {
         this._steps.push(new CTGTestStep("assert-any", name, fn, candidates, errorHandler));
         return this;
     }
 
+    // :: STRING, ctgTest -> this
+    // Composes another test's steps inline.
     chain(name, testInstance) {
         this._steps.push(new CTGTestStep("chain", name, testInstance, null, null));
         return this;
     }
 
+    // :: STRING, ((* -> BOOL|PROMISE(BOOL)))? -> this
+    // Marks a step for conditional or unconditional skipping.
     skip(stepName, predicate = null) {
         this._skips.push({ name: stepName, predicate });
         return this;
     }
 
+    // :: *, OBJECT? -> PROMISE(STRING|OBJECT|VOID)
+    // Executes the pipeline. All validation runs first (synchronous).
+    // Step execution is async — awaits each callable sequentially.
     async start(subject, config = {}) {
         const resolved = this._resolveConfig(config);
         this._validateConfig(resolved);
@@ -81,15 +109,45 @@ export default class CTGTest {
         this._validateSkips();
         const { results: stepResults } = await this._executeSteps(subject, resolved, 0, this._steps, this._skips);
         const report = CTGTestResult.report(this._name, stepResults);
+        CTGTest._results.push({ name: this._name, status: report.status });
         return this._deliver(report, resolved);
     }
 
-    // ── Config ───────────────────────────────────────────────
+    // :: *, *, BOOL -> BOOL
+    // Default comparison. Subclasses may override for custom matching.
+    // NOTE: This is the extension point — not matcher objects.
+    compare(actual, expected, strict) {
+        this._checkUncomparable(actual, "actual");
+        this._checkUncomparable(expected, "expected");
 
-    _resolveConfig(config) {
-        return { ...CTGTest.DEFAULT_CONFIG, ...config };
+        if (strict) {
+            return isDeepStrictEqual(actual, expected);
+        }
+
+        return this._looseDeepEqual(actual, expected, [], 0);
     }
 
+    /**
+     *
+     * Private Methods
+     *
+     */
+
+    // :: OBJECT -> OBJECT
+    // Merges caller config with DEFAULT_CONFIG. Normalizes timeout to integer.
+    // NOTE: Type-checks timeout before Math.trunc to prevent native TypeError on BigInt.
+    _resolveConfig(config) {
+        const resolved = { ...CTGTest.DEFAULT_CONFIG, ...config };
+        if (typeof resolved.timeout !== "number" || !Number.isFinite(resolved.timeout)) {
+            throw new CTGTestError("INVALID_CONFIG", `timeout must be a non-negative integer, got ${resolved.timeout}`);
+        }
+        resolved.timeout = Math.trunc(resolved.timeout);
+        return resolved;
+    }
+
+    // :: OBJECT -> VOID
+    // Validates config keys, output mode, boolean types, formatter reference, timeout.
+    // NOTE: Throws CTGTestError(INVALID_CONFIG) on failure.
     _validateConfig(config) {
         for (const key of Object.keys(config)) {
             if (!CTGTest.VALID_CONFIG_KEYS.includes(key)) {
@@ -115,14 +173,21 @@ export default class CTGTest {
                 throw new CTGTestError("INVALID_CONFIG", "formatter must have a static format method");
             }
         }
+
+        // Type and finite already checked in _resolveConfig; only negative remains
+        if (config.timeout < 0) {
+            throw new CTGTestError("INVALID_CONFIG", `timeout must be a non-negative integer, got ${config.timeout}`);
+        }
     }
 
-    // ── Step Validation ──────────────────────────────────────
-
+    // :: VOID -> VOID
+    // Validates all step definitions, recursing into chains.
     _validateSteps() {
         this._validateStepDefinitions(this._name, this._steps, new Set());
     }
 
+    // :: STRING, [ctgTestStep], Set -> VOID
+    // Recursive step validation with circular chain guard.
     _validateStepDefinitions(testName, steps, visited) {
         if (testName.trim().length === 0) {
             throw new CTGTestError("INVALID_STEP", "Test name must not be empty");
@@ -130,7 +195,7 @@ export default class CTGTest {
 
         const names = new Set();
         for (const step of steps) {
-            if (!["stage", "assert", "assert-any", "chain"].includes(step.type)) {
+            if (!CTGTest.VALID_STEP_TYPES.has(step.type)) {
                 throw new CTGTestError("INVALID_STEP", `Unknown step type: ${step.type}`);
             }
 
@@ -147,7 +212,6 @@ export default class CTGTest {
                 if (!(step.fn instanceof CTGTest)) {
                     throw new CTGTestError("INVALID_CHAIN", "Chain target must be a CTGTest instance");
                 }
-                // Recurse into chained test (guard against circular chain references)
                 if (!visited.has(step.fn)) {
                     visited.add(step.fn);
                     this._validateStepDefinitions(step.fn.name, step.fn.steps, visited);
@@ -177,12 +241,14 @@ export default class CTGTest {
         }
     }
 
-    // ── Skip Validation ──────────────────────────────────────
-
+    // :: VOID -> VOID
+    // Validates all skip directives on the root test.
     _validateSkips() {
         this._validateSkipDefinitions(this._steps, this._skips);
     }
 
+    // :: [ctgTestStep], [OBJECT] -> VOID
+    // Validates skip directives against a step list.
     _validateSkipDefinitions(steps, skips) {
         const stepNames = new Set(steps.map((s) => s.name.trim()));
         const skipNames = new Set();
@@ -206,8 +272,8 @@ export default class CTGTest {
         }
     }
 
-    // ── Execution ────────────────────────────────────────────
-
+    // :: *, OBJECT, INT, [ctgTestStep], [OBJECT] -> PROMISE({results: [OBJECT], subject: *})
+    // Executes steps sequentially, threading the subject. Returns results and final subject.
     async _executeSteps(subject, config, depth, steps, skips) {
         const results = [];
         const skipMap = new Map();
@@ -219,7 +285,6 @@ export default class CTGTest {
             const trimmedName = step.name.trim();
             const skipDirective = skipMap.get(trimmedName);
 
-            // Check skip
             if (skipDirective) {
                 const skipResult = await this._handleSkip(step, skipDirective, subject, config);
                 if (skipResult !== null) {
@@ -248,8 +313,6 @@ export default class CTGTest {
                 case "assert-any":
                     result = await this._executeAssertAny(step, subject, config);
                     break;
-                default:
-                    throw new CTGTestError("INVALID_STEP", `Unknown step type: ${step.type}`);
                 case "chain":
                     result = await this._executeChain(step, subject, config, depth);
                     if (result._chainSubject !== undefined) {
@@ -257,6 +320,8 @@ export default class CTGTest {
                     }
                     delete result._chainSubject;
                     break;
+                default:
+                    throw new CTGTestError("INVALID_STEP", `Unknown step type: ${step.type}`);
             }
 
             if (config.debug) {
@@ -273,6 +338,36 @@ export default class CTGTest {
         return { results, subject };
     }
 
+    // :: ((*) -> *|PROMISE(*)), *, STRING, STRING, INT -> PROMISE(*)
+    // Races callable against a timeout timer. kind and stepName are for error context.
+    // NOTE: Attaches sink catch on timeout to prevent unhandled rejection noise.
+    async _withTimeout(callable, arg, kind, stepName, timeoutMs) {
+        const callablePromise = Promise.resolve(callable(arg));
+        if (timeoutMs <= 0) return callablePromise;
+
+        let timer;
+        const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(
+                () => reject(new CTGTestError("INVALID_STEP",
+                    `Step '${stepName}' ${kind} timed out after ${timeoutMs}ms`,
+                    { step: stepName, timeout: timeoutMs, kind })),
+                timeoutMs
+            );
+        });
+
+        try {
+            const result = await Promise.race([callablePromise, timeoutPromise]);
+            clearTimeout(timer);
+            return result;
+        } catch (err) {
+            clearTimeout(timer);
+            callablePromise.catch(() => {});
+            throw err;
+        }
+    }
+
+    // :: ctgTestStep, OBJECT, *, OBJECT -> PROMISE(OBJECT|VOID)
+    // Handles skip directive evaluation. Returns skip/error result or null (don't skip).
     async _handleSkip(step, skipDirective, subject, config) {
         if (skipDirective.predicate === null) {
             return this._skipResult(step);
@@ -280,11 +375,13 @@ export default class CTGTest {
 
         const start = performance.now();
         try {
-            const shouldSkip = await skipDirective.predicate(subject);
+            const shouldSkip = await this._withTimeout(
+                skipDirective.predicate, subject, "predicate", step.name, config.timeout
+            );
             if (shouldSkip) {
                 return this._skipResult(step);
             }
-            return null; // don't skip
+            return null;
         } catch (err) {
             const durationMs = Math.round(performance.now() - start);
             const exception = CTGTestResult.formatException(err, config.trace);
@@ -292,6 +389,8 @@ export default class CTGTest {
         }
     }
 
+    // :: ctgTestStep -> OBJECT
+    // Produces a type-specific skip result with zero duration.
     _skipResult(step) {
         switch (step.type) {
             case "stage":
@@ -308,6 +407,8 @@ export default class CTGTest {
         }
     }
 
+    // :: ctgTestStep, INT, STRING, OBJECT -> OBJECT
+    // Produces a type-specific error result for a step.
     _errorResultForStep(step, durationMs, message, exception) {
         switch (step.type) {
             case "stage":
@@ -324,10 +425,12 @@ export default class CTGTest {
         }
     }
 
+    // :: ctgTestStep, *, OBJECT -> PROMISE(OBJECT)
+    // Executes a stage step with timeout and error recovery.
     async _executeStage(step, subject, config) {
         const start = performance.now();
         try {
-            const newSubject = await step.fn(subject);
+            const newSubject = await this._withTimeout(step.fn, subject, "fn", step.name, config.timeout);
             const durationMs = Math.round(performance.now() - start);
             const result = CTGTestResult.stepResult("stage", step.name, "pass", durationMs);
             result._newSubject = newSubject;
@@ -337,10 +440,12 @@ export default class CTGTest {
         }
     }
 
+    // :: ctgTestStep, *, OBJECT -> PROMISE(OBJECT)
+    // Executes an assert step with timeout and comparison.
     async _executeAssert(step, subject, config) {
         const start = performance.now();
         try {
-            const actual = await step.fn(subject);
+            const actual = await this._withTimeout(step.fn, subject, "fn", step.name, config.timeout);
             const matched = this.compare(actual, step.expected, config.strict);
             const durationMs = Math.round(performance.now() - start);
             if (matched) {
@@ -353,10 +458,12 @@ export default class CTGTest {
         }
     }
 
+    // :: ctgTestStep, *, OBJECT -> PROMISE(OBJECT)
+    // Executes an assert-any step with timeout and candidate matching.
     async _executeAssertAny(step, subject, config) {
         const start = performance.now();
         try {
-            const actual = await step.fn(subject);
+            const actual = await this._withTimeout(step.fn, subject, "fn", step.name, config.timeout);
             const candidates = step.expected;
 
             if (candidates.length === 0) {
@@ -385,6 +492,8 @@ export default class CTGTest {
         }
     }
 
+    // :: ctgTestStep, *, OBJECT, INT -> PROMISE(OBJECT)
+    // Executes a chain step by recursing into the chained test's steps.
     async _executeChain(step, subject, config, depth) {
         if (depth >= CTGTest.MAX_CHAIN_DEPTH) {
             throw new CTGTestError("INVALID_CHAIN", `Chain depth exceeds maximum of ${CTGTest.MAX_CHAIN_DEPTH}`);
@@ -405,13 +514,13 @@ export default class CTGTest {
         return result;
     }
 
-    // ── Error Handling ───────────────────────────────────────
-
+    // :: ctgTestStep, STRING, Error, *, OBJECT, NUMBER -> PROMISE(OBJECT)
+    // Handles step fn error with optional recovery via error handler.
     async _handleStepError(step, type, err, subject, config, start) {
         if (step.errorHandler) {
             const originalException = CTGTestResult.formatException(err, config.trace);
             try {
-                const recovered = await step.errorHandler(err);
+                const recovered = await this._withTimeout(step.errorHandler, err, "errorHandler", step.name, config.timeout);
                 const durationMs = Math.round(performance.now() - start);
                 const result = CTGTestResult.stepResult(type, step.name, "recovered", durationMs,
                     `error handler invoked, produced ${CTGTestResult.formatValue(recovered)}`, originalException);
@@ -428,11 +537,13 @@ export default class CTGTest {
         return CTGTestResult.stepResult(type, step.name, "error", durationMs, err.message, exception);
     }
 
+    // :: ctgTestStep, Error, *, OBJECT, NUMBER -> PROMISE(OBJECT)
+    // Handles assert fn error with optional recovery and re-comparison.
     async _handleAssertError(step, err, subject, config, start) {
         if (step.errorHandler) {
             const originalException = CTGTestResult.formatException(err, config.trace);
             try {
-                const recovered = await step.errorHandler(err);
+                const recovered = await this._withTimeout(step.errorHandler, err, "errorHandler", step.name, config.timeout);
                 const durationMs = Math.round(performance.now() - start);
                 const matched = this.compare(recovered, step.expected, config.strict);
                 if (matched) {
@@ -456,11 +567,13 @@ export default class CTGTest {
             null, step.expected, err.message, exception);
     }
 
+    // :: ctgTestStep, Error, *, OBJECT, NUMBER -> PROMISE(OBJECT)
+    // Handles assert-any fn error with optional recovery and candidate re-matching.
     async _handleAssertAnyError(step, err, subject, config, start) {
         if (step.errorHandler) {
             const originalException = CTGTestResult.formatException(err, config.trace);
             try {
-                const recovered = await step.errorHandler(err);
+                const recovered = await this._withTimeout(step.errorHandler, err, "errorHandler", step.name, config.timeout);
                 const durationMs = Math.round(performance.now() - start);
                 for (const candidate of step.expected) {
                     if (this.compare(recovered, candidate, config.strict)) {
@@ -486,20 +599,8 @@ export default class CTGTest {
             null, step.expected, err.message, exception);
     }
 
-    // ── Comparison ───────────────────────────────────────────
-
-    compare(actual, expected, strict) {
-        // Uncomparable checks
-        this._checkUncomparable(actual, "actual");
-        this._checkUncomparable(expected, "expected");
-
-        if (strict) {
-            return isDeepStrictEqual(actual, expected);
-        }
-
-        return this._looseDeepEqual(actual, expected, [], 0);
-    }
-
+    // :: *, STRING -> VOID
+    // Throws INVALID_STEP for uncomparable value types (functions, Map, Set).
     _checkUncomparable(value, label) {
         if (typeof value === "function") {
             throw new CTGTestError("INVALID_STEP", `Cannot compare closures (${label})`);
@@ -512,61 +613,52 @@ export default class CTGTest {
         }
     }
 
+    // :: *, *, [ARRAY], INT -> BOOL
+    // Manual deep loose equality with category gating and pair-path cycle detection.
     _looseDeepEqual(actual, expected, seen, depth) {
         if (depth > CTGTest.MAX_NESTING_DEPTH) {
             throw new CTGTestError("INVALID_STEP", "Comparison exceeds max nesting depth");
         }
 
-        // NaN
         if (typeof actual === "number" && typeof expected === "number") {
             if (Number.isNaN(actual) && Number.isNaN(expected)) return true;
         }
 
-        // Primitives (including BigInt == number via JS ==)
         if (actual == null && expected == null) return true;
         if (actual == null || expected == null) return actual == expected;
 
         const typeA = typeof actual;
         const typeB = typeof expected;
 
-        // Primitive loose comparison (handles BigInt == number, string == number, etc.)
         if (this._isPrimitive(typeA) && this._isPrimitive(typeB)) {
-            // eslint-disable-next-line eqeqeq
             return actual == expected;
         }
 
-        // Category-specific comparisons — if one side matches a special type,
-        // both must match or they are unequal (no fallthrough to generic keys)
         const isDate = (v) => v instanceof Date;
         const isRegExp = (v) => v instanceof RegExp;
         const isTypedArray = (v) => ArrayBuffer.isView(v) && !(v instanceof DataView);
         const isDataView = (v) => v instanceof DataView;
         const isArray = (v) => Array.isArray(v);
 
-        // Date
         if (isDate(actual) || isDate(expected)) {
             if (!isDate(actual) || !isDate(expected)) return false;
             return actual.getTime() === expected.getTime();
         }
 
-        // RegExp
         if (isRegExp(actual) || isRegExp(expected)) {
             if (!isRegExp(actual) || !isRegExp(expected)) return false;
             return actual.toString() === expected.toString();
         }
 
-        // Typed arrays — element-by-element with ==
         if (isTypedArray(actual) || isTypedArray(expected)) {
             if (!isTypedArray(actual) || !isTypedArray(expected)) return false;
             if (actual.length !== expected.length) return false;
             for (let i = 0; i < actual.length; i++) {
-                // eslint-disable-next-line eqeqeq
                 if (!(actual[i] == expected[i])) return false;
             }
             return true;
         }
 
-        // DataView — compare byte-by-byte
         if (isDataView(actual) || isDataView(expected)) {
             if (!isDataView(actual) || !isDataView(expected)) return false;
             if (actual.byteLength !== expected.byteLength) return false;
@@ -576,12 +668,10 @@ export default class CTGTest {
             return true;
         }
 
-        // Array
         if (isArray(actual) || isArray(expected)) {
             if (!isArray(actual) || !isArray(expected)) return false;
         }
 
-        // Cycle detection for objects — track (actual, expected) pairs on current path
         if (typeA === "object" && typeB === "object") {
             for (const pair of seen) {
                 if (pair[0] === actual && pair[1] === expected) {
@@ -591,7 +681,6 @@ export default class CTGTest {
             seen.push([actual, expected]);
         }
 
-        // Array
         if (isArray(actual)) {
             if (actual.length !== expected.length) { seen.pop(); return false; }
             for (let i = 0; i < actual.length; i++) {
@@ -601,7 +690,6 @@ export default class CTGTest {
             return true;
         }
 
-        // Plain objects / class instances
         if (typeA === "object" && typeB === "object") {
             const keysA = Object.keys(actual);
             const keysB = Object.keys(expected);
@@ -614,17 +702,17 @@ export default class CTGTest {
             return true;
         }
 
-        // Fallback
-        // eslint-disable-next-line eqeqeq
         return actual == expected;
     }
 
+    // :: STRING -> BOOL
+    // Checks if a typeof string represents a primitive type.
     _isPrimitive(type) {
         return type === "string" || type === "number" || type === "boolean" || type === "bigint";
     }
 
-    // ── Debug Snapshots ──────────────────────────────────────
-
+    // :: *, INT, WeakSet? -> *
+    // Creates a safe snapshot of the subject for debug mode.
     _snapshotSubject(subject, depth, seen) {
         if (!seen) seen = new WeakSet();
 
@@ -637,14 +725,10 @@ export default class CTGTest {
         const t = typeof subject;
 
         if (t === "string" || t === "number" || t === "boolean") return subject;
-
         if (t === "bigint") return `${subject}n`;
-
         if (t === "function") return "[Closure]";
-
         if (t === "symbol") return `symbol(${subject.description})`;
 
-        // Non-serializable built-ins
         if (subject instanceof WeakMap || subject instanceof WeakSet ||
             subject instanceof WeakRef || subject instanceof Promise) {
             return `[${subject.constructor.name}]`;
@@ -652,29 +736,26 @@ export default class CTGTest {
 
         if (typeof subject !== "object") return subject;
 
-        // Cycle detection
         if (seen.has(subject)) {
             return `[Circular: ${subject.constructor.name}]`;
         }
         seen.add(subject);
 
-        // Arrays
         if (Array.isArray(subject)) {
             return subject.map((item) => this._snapshotSubject(item, depth + 1, seen));
         }
 
-        // Objects
         const snap = { __class: subject.constructor.name };
         for (const key of Object.keys(subject)) {
             const descriptor = Object.getOwnPropertyDescriptor(subject, key);
-            if (!descriptor || !("value" in descriptor)) continue; // skip getters
+            if (!descriptor || !("value" in descriptor)) continue;
             snap[key] = this._snapshotSubject(descriptor.value, depth + 1, seen);
         }
         return snap;
     }
 
-    // ── Delivery ─────────────────────────────────────────────
-
+    // :: OBJECT, OBJECT -> STRING|OBJECT|VOID
+    // Formats and delivers the report based on output mode.
     _deliver(report, config) {
         if (config.output === "return-json") {
             return report;
@@ -717,8 +798,31 @@ export default class CTGTest {
             return formatted;
         }
 
-        // console, json, junit — write to stdout
         process.stdout.write(formatted + "\n");
         return undefined;
+    }
+
+    /**
+     *
+     * Static Methods
+     *
+     */
+
+    // Static Factory Method :: STRING -> ctgTest
+    // Creates a new test definition with the given name.
+    static init(name) {
+        return new this(name);
+    }
+
+    // :: OBJECT -> VOID
+    // Stores CLI configuration for retrieval by test files.
+    static setCliConfig(config) {
+        CTGTest._cliConfig = config;
+    }
+
+    // :: VOID -> OBJECT
+    // Returns CLI config set by the runner. Returns {} if none was set.
+    static getCliConfig() {
+        return CTGTest._cliConfig || {};
     }
 }

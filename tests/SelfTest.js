@@ -1699,6 +1699,163 @@ await selfTest("skipped chain has chainResult shape with empty steps", async () 
         && step.total === 0;
 });
 
+// ── Timeout ──────────────────────────────────────────────────
+
+await selfTest("timeout: step fn times out produces error", async () => {
+    const r = await CTGTest.init("timeout test")
+        .stage("slow", () => new Promise((resolve) => setTimeout(resolve, 200)))
+        .start(1, { output: "return-json", timeout: 50 });
+    return r.steps[0].status === "error"
+        && r.steps[0].exception !== null
+        && r.steps[0].exception.class === "CTGTestError"
+        && r.steps[0].exception.data !== null
+        && r.steps[0].exception.data.kind === "fn"
+        && r.steps[0].exception.data.timeout === 50;
+});
+
+await selfTest("timeout: error handler times out produces error with caused_by", async () => {
+    const r = await CTGTest.init("handler timeout")
+        .stage(
+            "throws",
+            () => { throw new Error("original"); },
+            () => new Promise((resolve) => setTimeout(resolve, 200))
+        )
+        .start(1, { output: "return-json", timeout: 50 });
+    return r.steps[0].status === "error"
+        && r.steps[0].exception !== null
+        && r.steps[0].exception.data !== null
+        && r.steps[0].exception.data.kind === "errorHandler"
+        && r.steps[0].exception.caused_by !== undefined
+        && r.steps[0].exception.caused_by.class === "Error";
+});
+
+await selfTest("timeout: skip predicate times out produces error", async () => {
+    const r = await CTGTest.init("pred timeout")
+        .stage("step", (x) => x)
+        .skip("step", () => new Promise((resolve) => setTimeout(resolve, 200)))
+        .start(1, { output: "return-json", timeout: 50 });
+    return r.steps[0].status === "error"
+        && r.steps[0].exception.data.kind === "predicate";
+});
+
+await selfTest("timeout: fast step completes normally with timeout enabled", async () => {
+    const r = await CTGTest.init("fast with timeout")
+        .stage("quick", (x) => x * 2)
+        .assert("check", (x) => x, 10)
+        .start(5, { output: "return-json", timeout: 5000 });
+    return r.status === "pass";
+});
+
+await selfTest("timeout: 0 disables timeout enforcement", async () => {
+    const r = await CTGTest.init("no timeout")
+        .stage("identity", (x) => x)
+        .start(1, { output: "return-json", timeout: 0 });
+    return r.status === "pass";
+});
+
+await selfTest("timeout: type-specific shape preserved on timeout", async () => {
+    const r = await CTGTest.init("assert timeout shape")
+        .assert("slow assert", () => new Promise((resolve) => setTimeout(resolve, 200)), 42)
+        .start(1, { output: "return-json", timeout: 50 });
+    const step = r.steps[0];
+    return step.type === "assert"
+        && step.status === "error"
+        && "actual" in step
+        && "expected" in step
+        && step.expected === 42;
+});
+
+// ── Timeout Config Validation ────────────────────────────────
+
+await selfTest("INVALID_CONFIG negative timeout", async () => {
+    try {
+        await CTGTest.init("x").start(1, { timeout: -1 });
+        return "no throw";
+    } catch (e) {
+        return e instanceof CTGTestError && e.code === CTGTestError.ERROR_TYPES.INVALID_CONFIG;
+    }
+});
+
+await selfTest("INVALID_CONFIG non-number timeout", async () => {
+    try {
+        await CTGTest.init("x").start(1, { timeout: "fast" });
+        return "no throw";
+    } catch (e) {
+        return e instanceof CTGTestError && e.code === CTGTestError.ERROR_TYPES.INVALID_CONFIG;
+    }
+});
+
+await selfTest("INVALID_CONFIG NaN timeout", async () => {
+    try {
+        await CTGTest.init("x").start(1, { timeout: NaN });
+        return "no throw";
+    } catch (e) {
+        return e instanceof CTGTestError && e.code === CTGTestError.ERROR_TYPES.INVALID_CONFIG;
+    }
+});
+
+await selfTest("INVALID_CONFIG Infinity timeout", async () => {
+    try {
+        await CTGTest.init("x").start(1, { timeout: Infinity });
+        return "no throw";
+    } catch (e) {
+        return e instanceof CTGTestError && e.code === CTGTestError.ERROR_TYPES.INVALID_CONFIG;
+    }
+});
+
+await selfTest("INVALID_CONFIG string timeout", async () => {
+    try {
+        await CTGTest.init("x").start(1, { timeout: "10" });
+        return "no throw";
+    } catch (e) {
+        return e instanceof CTGTestError && e.code === CTGTestError.ERROR_TYPES.INVALID_CONFIG;
+    }
+});
+
+await selfTest("INVALID_CONFIG BigInt timeout", async () => {
+    try {
+        await CTGTest.init("x").start(1, { timeout: BigInt(10) });
+        return "no throw";
+    } catch (e) {
+        return e instanceof CTGTestError && e.code === CTGTestError.ERROR_TYPES.INVALID_CONFIG;
+    }
+});
+
+await selfTest("timeout: float truncated to integer", async () => {
+    const r = await CTGTest.init("float timeout")
+        .stage("identity", (x) => x)
+        .start(1, { output: "return-json", timeout: 5000.7 });
+    return r.status === "pass";
+});
+
+// ── Static Result Collector ──────────────────────────────────
+
+await selfTest("_results populated after start()", async () => {
+    const before = CTGTest._results.length;
+    await CTGTest.init("results test")
+        .assert("p", (x) => x, 1)
+        .start(1, { output: "return-json" });
+    const after = CTGTest._results.length;
+    const last = CTGTest._results[CTGTest._results.length - 1];
+    return after === before + 1
+        && last.name === "results test"
+        && last.status === "pass";
+});
+
+await selfTest("_results records fail status", async () => {
+    await CTGTest.init("fail result")
+        .assert("bad", (x) => x, 999)
+        .start(1, { output: "return-json" });
+    const last = CTGTest._results[CTGTest._results.length - 1];
+    return last.name === "fail result"
+        && last.status === "fail";
+});
+
+await selfTest("_results reset clears entries", async () => {
+    CTGTest._results = [];
+    return CTGTest._results.length === 0;
+});
+
 // ── Bootstrap Summary ────────────────────────────────────────
 
 process.stdout.write("\n");

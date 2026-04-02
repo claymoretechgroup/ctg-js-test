@@ -1,7 +1,18 @@
-import CTGTestResult from "../CTGTestResult.js";
+// Formats report as JUnit XML for CI integration
+import CTGTestResult from "../CTGTestResult.js"; // Result utilities for formatValue
 
+// JUnit XML formatter mapping test results to testsuite/testcase elements
 export default class CTGTestJunitFormatter {
 
+    /**
+     *
+     * Static Methods
+     *
+     */
+
+    // :: OBJECT, OBJECT? -> STRING
+    // Produces JUnit XML output from a report structure.
+    // NOTE: No trailing newline — delivery layer appends it.
     static format(report, config = {}) {
         const lines = [];
         lines.push('<?xml version="1.0" encoding="UTF-8"?>');
@@ -9,6 +20,8 @@ export default class CTGTestJunitFormatter {
         return lines.join("\n");
     }
 
+    // :: OBJECT, [STRING], OBJECT -> VOID
+    // Formats a suite (report or chain) as a <testsuite> element.
     static _formatSuite(suite, lines, config) {
         const time = (suite.duration_ms / 1000).toFixed(3);
         lines.push(
@@ -31,6 +44,8 @@ export default class CTGTestJunitFormatter {
         lines.push("</testsuite>");
     }
 
+    // :: OBJECT, [STRING], OBJECT -> VOID
+    // Formats a single step as a <testcase> element with status-specific children.
     static _formatCase(step, lines, config) {
         const time = (step.duration_ms / 1000).toFixed(3);
         const nameAttr = CTGTestJunitFormatter._attr(step.name);
@@ -84,6 +99,8 @@ export default class CTGTestJunitFormatter {
         lines.push("  </testcase>");
     }
 
+    // :: STRING -> STRING
+    // Escapes XML special characters in text content.
     static _escape(str) {
         return String(str)
             .replace(/&/g, "&amp;")
@@ -93,6 +110,8 @@ export default class CTGTestJunitFormatter {
             .replace(/'/g, "&#39;");
     }
 
+    // :: STRING -> STRING
+    // Wraps a string as a quoted, XML-escaped attribute value.
     static _attr(str) {
         return `"${CTGTestJunitFormatter._escape(str)}"`;
     }

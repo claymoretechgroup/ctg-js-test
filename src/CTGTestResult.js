@@ -1,4 +1,7 @@
+// Static result factory methods, aggregation utilities, and value formatting
 export default class CTGTestResult {
+
+    /* Static Fields */
 
     static STATUS_PASS      = "pass";
     static STATUS_FAIL      = "fail";
@@ -14,18 +17,32 @@ export default class CTGTestResult {
         "skip":      1
     };
 
+    /**
+     *
+     * Static Methods
+     *
+     */
+
+    // :: STRING, STRING, STRING, INT, STRING?, OBJECT? -> OBJECT
+    // Creates a stage-type result structure.
     static stepResult(type, name, status, durationMs, message = null, exception = null) {
         return { type, name, status, duration_ms: durationMs, message, exception };
     }
 
+    // :: STRING, STRING, INT, *, *, STRING?, OBJECT? -> OBJECT
+    // Creates an assert result with actual and expected fields.
     static assertResult(name, status, durationMs, actual, expected, message = null, exception = null) {
         return { type: "assert", name, status, duration_ms: durationMs, actual, expected, message, exception };
     }
 
+    // :: STRING, STRING, INT, *, [*], STRING?, OBJECT? -> OBJECT
+    // Creates an assert-any result with actual and candidates fields.
     static assertAnyResult(name, status, durationMs, actual, candidates, message = null, exception = null) {
         return { type: "assert-any", name, status, duration_ms: durationMs, actual, candidates, message, exception };
     }
 
+    // :: STRING, STRING, INT, STRING?, OBJECT?, [OBJECT], OBJECT -> OBJECT
+    // Creates a chain result with nested step results and aggregate counts.
     static chainResult(name, status, durationMs, message, exception, steps, counts) {
         return {
             type: "chain", name, status, duration_ms: durationMs, message, exception, steps,
@@ -34,11 +51,16 @@ export default class CTGTestResult {
         };
     }
 
+    // :: INT, INT, INT -> STRING|VOID
+    // Generates canonical chain message from child counts.
+    // NOTE: Returns null if no failures or errors.
     static chainMessage(failed, errored, total) {
         if (failed === 0 && errored === 0) return null;
         return `${failed} failed, ${errored} errored in ${total} steps`;
     }
 
+    // :: STRING, [OBJECT] -> OBJECT
+    // Assembles root report. Calls countSteps, aggregateStatus, sumDuration internally.
     static report(name, steps) {
         const counts = CTGTestResult.countSteps(steps);
         const status = CTGTestResult.aggregateStatus(steps);
@@ -51,6 +73,9 @@ export default class CTGTestResult {
         };
     }
 
+    // :: [OBJECT] -> STRING
+    // Derives worst status from child steps using severity ordering.
+    // NOTE: Empty list returns "pass".
     static aggregateStatus(steps) {
         if (steps.length === 0) return "pass";
         let maxSeverity = 0;
@@ -65,6 +90,8 @@ export default class CTGTestResult {
         return maxStatus;
     }
 
+    // :: [OBJECT] -> OBJECT
+    // Counts steps by status at current level only (no recursion into chains).
     static countSteps(steps) {
         const counts = { passed: 0, failed: 0, skipped: 0, recovered: 0, errored: 0, total: 0 };
         for (const step of steps) {
@@ -80,6 +107,8 @@ export default class CTGTestResult {
         return counts;
     }
 
+    // :: [OBJECT] -> INT
+    // Sums duration_ms across steps at current level.
     static sumDuration(steps) {
         let total = 0;
         for (const step of steps) {
@@ -88,6 +117,9 @@ export default class CTGTestResult {
         return total;
     }
 
+    // :: Error, BOOL, OBJECT? -> OBJECT
+    // Serializes an exception to a structured map.
+    // NOTE: causedBy is a pre-formatted exception map, not a raw Error.
     static formatException(exception, includeTrace, causedBy = null) {
         const result = {
             class: exception.constructor.name,
@@ -104,6 +136,10 @@ export default class CTGTestResult {
             result.trace = exception.stack;
         }
 
+        if (exception.data !== undefined && exception.data !== null) {
+            result.data = exception.data;
+        }
+
         if (causedBy !== null && causedBy !== undefined) {
             result.caused_by = causedBy;
         }
@@ -111,6 +147,8 @@ export default class CTGTestResult {
         return result;
     }
 
+    // :: * -> STRING
+    // Serializes any value to a human-readable string.
     static formatValue(value) {
         if (value === null) return "null";
         if (value === undefined) return "null";

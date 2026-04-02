@@ -8,14 +8,7 @@
 
 ## Implementation Status
 
-The following spec sections are **not yet implemented** and represent planned work:
-
-- **Per-step timeout** (`timeout` config key, `_withTimeout` helper) — spec section: Per-Step Timeout
-- **Static result collector** (`CTGTest._results`) — spec section: Static Result Collector
-- **CI exit semantics** (exit code 1 on test fail/error) — spec section: Exit Codes
-- **CLI `--timeout` flag** — spec section: `--timeout` Validation
-
-All other spec sections are implemented and tested.
+All spec sections are implemented and tested.
 
 ---
 

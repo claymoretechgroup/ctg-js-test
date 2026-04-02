@@ -1,23 +1,24 @@
 #!/usr/bin/env node
 
-import { readdirSync, statSync } from "node:fs";
-import { resolve, basename } from "node:path";
-import { pathToFileURL } from "node:url";
-import CTGTest from "../src/CTGTest.js";
-
-const args = process.argv.slice(2);
+import { readdirSync, statSync } from "node:fs"; // File system operations
+import { resolve, basename } from "node:path"; // Path resolution
+import { pathToFileURL } from "node:url"; // Cross-platform file URL conversion
+import CTGTest from "../src/CTGTest.js"; // Test framework
 
 // ── Help ─────────────────────────────────────────────────────
+
+const args = process.argv.slice(2);
 
 if (args.includes("--help")) {
     process.stdout.write(`Usage: ctg-test [options] [files...]
 
 Options:
-  --format=MODE   Output mode (console, json, junit)
-  --no-halt       Continue on failures
-  --loose         Use loose comparison
-  --trace         Include stack traces
-  --help          Show this help
+  --format=MODE    Output mode (console, json, junit)
+  --no-halt        Continue on failures
+  --loose          Use loose comparison
+  --trace          Include stack traces
+  --timeout=N      Per-step timeout in ms (0 = disabled, default 5000)
+  --help           Show this help
 `);
     process.exit(0);
 }
@@ -36,6 +37,23 @@ for (const arg of args) {
         config.strict = false;
     } else if (arg === "--trace") {
         config.trace = true;
+    } else if (arg.startsWith("--timeout=")) {
+        const raw = arg.slice("--timeout=".length);
+        if (raw === "") {
+            // --timeout= with no value — ignore, default applies
+        } else {
+            const parsed = Number(raw);
+            if (Number.isNaN(parsed) || !Number.isFinite(parsed)) {
+                process.stderr.write(`Warning: invalid --timeout value '${raw}', using default\n`);
+            } else {
+                const truncated = Math.trunc(parsed);
+                if (truncated < 0) {
+                    process.stderr.write(`Warning: negative --timeout value '${raw}', using default\n`);
+                } else {
+                    config.timeout = truncated;
+                }
+            }
+        }
     } else if (!arg.startsWith("--")) {
         positional.push(arg);
     }
@@ -69,6 +87,8 @@ if (positional.length > 0) {
     files = discoverTests(process.cwd());
 }
 
+// :: STRING -> [STRING]
+// Discovers *Test.js files in CWD or tests/ subdirectory.
 function discoverTests(cwd) {
     let found = scanDir(cwd);
     if (found.length === 0) {
@@ -83,6 +103,8 @@ function discoverTests(cwd) {
     return found.sort();
 }
 
+// :: STRING -> [STRING]
+// Scans a directory for files matching *Test.js.
 function scanDir(dir) {
     const results = [];
     try {
@@ -100,15 +122,21 @@ function scanDir(dir) {
 
 // ── Execute ──────────────────────────────────────────────────
 
-let hadError = false;
+let hadFailure = false;
 
 for (const file of files) {
+    CTGTest._results = [];
     try {
         await import(pathToFileURL(file).href);
     } catch (err) {
         process.stderr.write(`Failed to load ${file}: ${err.message}\n`);
-        hadError = true;
+        hadFailure = true;
+    }
+    for (const result of CTGTest._results) {
+        if (result.status === "fail" || result.status === "error") {
+            hadFailure = true;
+        }
     }
 }
 
-process.exit(hadError ? 1 : 0);
+process.exit(hadFailure ? 1 : 0);
