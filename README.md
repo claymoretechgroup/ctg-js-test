@@ -195,6 +195,16 @@ Test files are ESM modules that import `CTGTest` and execute on import. The runn
 | `formatter` | class\|null | `null` | Custom formatter class with static `format(report, config)` |
 | `timeout` | number | `5000` | Per-step timeout in ms (0 = disabled) |
 
+## Considerations
+
+### Loose Mode Semantics
+
+Loose mode (`strict: false`) uses `==` coercion at leaf nodes during deep comparison. This means `1` matches `"1"`, `0` matches `false`, and `null` matches `undefined` at any depth. A future version may introduce an alternative comparison mode (e.g. structural equality using `===` without coercion) as a separate option rather than changing the existing `strict: false` behavior, which is a documented contract.
+
+### Map and Set Comparison
+
+`compare()` currently throws `INVALID_STEP` for Map and Set instances. This is intentional — these types are explicitly uncomparable in the current spec. A future version may add Map/Set deep comparison support behind a versioned behavior change or new config flag. Any such change would need to address: insertion order sensitivity, object keys in Maps, duplicate-equivalent entries in Sets, cycle handling within Map/Set values, and the interaction with `_checkUncomparable` which guards both strict and loose paths.
+
 ## Notice
 
 `ctg-js-test` is under active development. The core API is stable. Formatters and CLI tooling may change.
