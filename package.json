@@ -1,6 +1,6 @@
 {
     "name": "ctg-js-test",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Composable, pipeline-based test framework for Node.js with async-native execution and zero dependencies",
     "type": "module",
     "exports": {

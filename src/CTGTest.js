@@ -731,26 +731,32 @@ export default class CTGTest {
 
         if (subject instanceof WeakMap || subject instanceof WeakSet ||
             subject instanceof WeakRef || subject instanceof Promise) {
-            return `[${subject.constructor.name}]`;
+            const name = subject.constructor ? subject.constructor.name : "Object";
+            return `[${name}]`;
         }
 
         if (typeof subject !== "object") return subject;
 
         if (seen.has(subject)) {
-            return `[Circular: ${subject.constructor.name}]`;
+            const name = subject.constructor ? subject.constructor.name : "Object";
+            return `[Circular: ${name}]`;
         }
         seen.add(subject);
 
         if (Array.isArray(subject)) {
-            return subject.map((item) => this._snapshotSubject(item, depth + 1, seen));
+            const result = subject.map((item) => this._snapshotSubject(item, depth + 1, seen));
+            seen.delete(subject);
+            return result;
         }
 
-        const snap = { __class: subject.constructor.name };
+        const name = subject.constructor ? subject.constructor.name : "Object";
+        const snap = { __class: name };
         for (const key of Object.keys(subject)) {
             const descriptor = Object.getOwnPropertyDescriptor(subject, key);
             if (!descriptor || !("value" in descriptor)) continue;
             snap[key] = this._snapshotSubject(descriptor.value, depth + 1, seen);
         }
+        seen.delete(subject);
         return snap;
     }
 
