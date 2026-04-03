@@ -15,7 +15,7 @@
 ## Install
 
 ```
-npm install ctg-js-test
+npm install claymoretechgroup/ctg-js-test
 ```
 
 Minimum Node.js version: 14.x (ESM support, `util.isDeepStrictEqual`, `performance.now()`).
