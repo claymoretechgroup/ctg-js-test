@@ -17,13 +17,13 @@ Typed error class extending `Error` with bidirectional name/code lookup. All fra
 
 | Code | Type | Description |
 |------|------|-------------|
-| 1000 | INVALID_STEP | Step defined with non-callable fn, empty name, duplicate name, or unknown type |
+| 1000 | INVALID_STEP | Step defined with non-callable fn, empty name, duplicate name, or non-state return from stage |
 | 1001 | INVALID_CHAIN | Chain target is not a CTGTest instance, or chain depth exceeds 64 |
-| 1002 | INVALID_CONFIG | Unknown config key, invalid output mode, wrong type for boolean/timeout/formatter |
+| 1002 | INVALID_CONFIG | Unknown config key, wrong type for boolean/timeout |
 | 1003 | INVALID_EXPECTED | Assert expected is a function, or assertAny expected is not an array |
-| 1004 | INVALID_SKIP | Skip target doesn't exist, duplicate skip, or predicate is not a function |
-| 2000 | FORMATTER_ERROR | Formatter threw a non-CTGTestError exception or returned non-string |
-| 2001 | RUNNER_ERROR | CLI runner-level failure |
+| 1004 | INVALID_SKIP | Skip target doesn't exist, duplicate skip, predicate is not a function, or skip appears after target |
+| 2000 | FORMATTER_ERROR | Reserved — not thrown by the v2 pipeline (formatters are caller utilities) |
+| 2001 | RUNNER_ERROR | Reserved — not thrown by the v2 pipeline (bin runner removed) |
 
 ---
 

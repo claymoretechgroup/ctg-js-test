@@ -1,24 +1,22 @@
 # CTGTest
 
-Sequential test pipeline engine. Test instances are definitions — they hold no subject and carry no runtime state until `start()` is called. All step callables are `await`ed, supporting both sync and async code uniformly.
+Pipeline-based test engine. Sequences steps, evaluates outcomes, records results on state. Returns CTGTestState to the caller. Test instances are definitions — they hold no subject and carry no runtime state until `start()` is called.
 
 ### Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
 | _name | STRING | Name of this test pipeline (trimmed at construction) |
-| _steps | [ctgTestStep] | Ordered list of step definitions |
-| _skips | [OBJECT] | Skip directives: `{ name: STRING, predicate: ((*) -> BOOL)\|VOID }` |
+| _steps | [CTGTestStep] | Ordered list of step instances |
 
 ### Static Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
 | MAX_CHAIN_DEPTH | INT | Maximum chain nesting depth (64) |
-| MAX_NESTING_DEPTH | INT | Maximum comparison/snapshot recursion depth (128) |
+| MAX_NESTING_DEPTH | INT | Maximum comparison recursion depth (128) |
 | DEFAULT_CONFIG | OBJECT | Default configuration merged into every `start()` call |
-| _results | [OBJECT] | Internal result collector populated by `start()` |
-| _cliConfig | OBJECT\|VOID | CLI configuration set by the runner |
+| VALID_CONFIG_KEYS | [STRING] | Accepted config keys: `haltOnFailure`, `strict`, `timeout` |
 
 ---
 
@@ -32,117 +30,95 @@ const test = CTGTest.init("my test");
 
 ---
 
-### CONSTRUCTOR :: STRING -> ctgTest
+### ctgTest.stage :: STRING, (CTGTestState -> CTGTestState), FUNCTION? -> ctgTest
 
-Stores the trimmed name and initializes empty steps and skips arrays. Use `CTGTest.init()` instead of calling the constructor directly.
-
----
-
-### ctgTest.stage :: STRING, (* -> *|PROMISE(*)), ((Error) -> *|PROMISE(*))? -> this
-
-Adds a stage step to the pipeline. At execution time, the callable receives the current subject and returns a transformed subject that becomes the new subject for subsequent steps. If an error handler is provided, it receives the exception when the callable throws and its return value replaces the subject (status: recovered). Chainable.
+Adds a stage step. The callback receives state, transforms it, and must return state. Chainable.
 
 ```javascript
-CTGTest.init("transform")
-    .stage("double", (n) => n * 2)
-    .stage("add one", (n) => n + 1);
+CTGTest.init("example")
+    .stage("double", (state) => { state.subject = state.subject * 2; return state; });
 ```
 
 ---
 
-### ctgTest.assert :: STRING, (* -> *|PROMISE(*)), *, ((Error) -> *|PROMISE(*))? -> this
+### ctgTest.assert :: STRING, (CTGTestState -> *), *, FUNCTION? -> ctgTest
 
-Adds an assert step. The callable receives the subject and returns a value compared against `expected`. The subject is not mutated. If comparison fails, status is `fail`. If the callable throws and an error handler recovers a value matching expected, status is `recovered`; if the recovered value doesn't match, status is `fail`. Chainable.
+Adds an assert step. The callback computes an actual value from state. The pipeline compares it to the expected value. Chainable.
 
 ```javascript
-CTGTest.init("check")
-    .assert("is ten", (n) => n, 10);
+CTGTest.init("example")
+    .assert("check", (state) => state.subject, 42);
 ```
 
 ---
 
-### ctgTest.assertAny :: STRING, (* -> *|PROMISE(*)), [*], ((Error) -> *|PROMISE(*))? -> this
+### ctgTest.assertAny :: STRING, (CTGTestState -> *), [*], FUNCTION? -> ctgTest
 
-Adds an assert-any step. The callable's return value is compared against each candidate in the array. If any candidate matches, status is `pass`. Empty candidate arrays always fail. Chainable.
+Adds an assertAny step. The callback computes an actual value. The pipeline compares it against the candidate list. Chainable.
 
 ```javascript
-CTGTest.init("check set")
-    .assertAny("in range", (n) => n, [1, 2, 3, 4, 5]);
+CTGTest.init("example")
+    .assertAny("check", (state) => state.subject, [41, 42, 43]);
 ```
 
 ---
 
-### ctgTest.chain :: STRING, ctgTest -> this
+### ctgTest.chain :: STRING, CTGTest -> ctgTest
 
-Composes another test's steps inline. The chained test's steps execute with the current subject, and mutations carry forward to subsequent steps in the parent pipeline. The chain's name comes from this call, not from the chained test's `init()` name. Chainable.
+Composes another pipeline's steps inline, threading the subject through. Chainable.
 
 ```javascript
-const validator = CTGTest.init("validate")
-    .assert("positive", (n) => n > 0, true);
+const inner = CTGTest.init("inner")
+    .stage("add 1", (state) => { state.subject = state.subject + 1; return state; });
 
-CTGTest.init("pipeline")
-    .stage("compute", (n) => n * 2)
-    .chain("verify", validator);
+CTGTest.init("outer")
+    .chain("use inner", inner);
 ```
 
 ---
 
-### ctgTest.skip :: STRING, ((* -> BOOL|PROMISE(BOOL)))? -> this
+### ctgTest.skip :: STRING, STRING, (CTGTestState -> BOOL)? -> ctgTest
 
-Marks a step for skipping. Without a predicate, the step is always skipped. With a predicate, the step is skipped when the predicate returns `true` (receives the current subject). If the predicate throws, the step produces an error result. Chainable.
+Adds a skip step targeting another step by name. If the predicate returns true (or is null for unconditional), the target step is skipped. Must appear before the target in the pipeline. Chainable.
 
 ```javascript
-CTGTest.init("conditional")
-    .stage("expensive", async (x) => await heavyWork(x))
-    .skip("expensive", (x) => x < threshold);
+CTGTest.init("example")
+    .skip("skip if negative", "check", (state) => state.subject < 0)
+    .assert("check", (state) => state.subject, 42);
 ```
 
 ---
 
-### ctgTest.start :: *, OBJECT? -> PROMISE(STRING|OBJECT|VOID)
+### ctgTest.start :: *, OBJECT? -> PROMISE(CTGTestState)
 
-Executes the pipeline. Validates config, steps, and skips synchronously, then runs steps async. Returns a value based on output mode: formatted string (`return`), raw report object (`return-json`), or `undefined` (console/json/junit print to stdout). Populates `CTGTest._results` with `{ name, status }` for runner integration.
+Executes the pipeline. Validates config, steps, and skip targets synchronously, then runs steps async. Returns the final CTGTestState containing all results.
+
+If the subject is not a CTGTestState instance, it is wrapped in one. The pipeline does not write to stdout, select formatters, or publish results — the caller owns delivery.
 
 ```javascript
-const report = await test.start(subject, {
-    output: "return-json",
-    strict: true,
-    timeout: 5000
-});
+const state = await CTGTest.init("my test")
+    .assert("check", (state) => state.subject, 42)
+    .start(42);
+
+// Caller owns delivery
+console.log(state.status); // "pass"
 ```
+
+### Config
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `haltOnFailure` | BOOL | `true` | Stop pipeline at first fail or error |
+| `strict` | BOOL | `true` | Use strict (===) comparison |
+| `timeout` | INT | `5000` | Per-step timeout in ms (0 = disabled) |
 
 ---
 
 ### ctgTest.compare :: *, *, BOOL -> BOOL
 
-Default comparison method. Strict mode delegates to `util.isDeepStrictEqual`. Loose mode uses manual deep equality with `==` semantics, category gating, and pair-path cycle detection. Functions, Map, and Set are uncomparable (throw `INVALID_STEP`). Subclasses may override for custom matching.
+Compares actual and expected values. Used by the pipeline after step execution to judge assert outcomes. Strict mode uses `isDeepStrictEqual`. Loose mode uses manual traversal with type coercion.
 
 ```javascript
-// Called internally during assert/assertAny execution
-// Subclass override example:
-class FuzzyTest extends CTGTest {
-    compare(actual, expected, strict) {
-        if (typeof actual === "number" && typeof expected === "number") {
-            return Math.abs(actual - expected) < 0.001;
-        }
-        return super.compare(actual, expected, strict);
-    }
-}
-```
-
----
-
-### CTGTest.setCliConfig :: OBJECT -> VOID
-
-Stores CLI configuration for retrieval by test files via `getCliConfig()`. Called by the CLI runner after parsing flags.
-
----
-
-### CTGTest.getCliConfig :: VOID -> OBJECT
-
-Returns the CLI config set by the runner. Returns `{}` if none was set. Test files spread this into their `start()` config to inherit CLI flags.
-
-```javascript
-const config = { ...CTGTest.getCliConfig(), output: "return-json" };
-await test.start(subject, config);
+test.compare({ a: 1 }, { a: 1 }, true);  // true (strict)
+test.compare(5, "5", false);              // true (loose)
 ```

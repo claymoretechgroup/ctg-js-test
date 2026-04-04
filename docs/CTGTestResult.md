@@ -1,6 +1,6 @@
 # CTGTestResult
 
-Static utility class for creating result structures, aggregating statuses, and formatting values. No constructor or instance state — all methods are static.
+Static utility class for creating result structures, aggregating statuses, and formatting values. No constructor or instance state — all methods are static. Used by the pipeline's `_evaluateStep` method to construct canonical result objects.
 
 ### Static Fields
 
@@ -17,7 +17,7 @@ Static utility class for creating result structures, aggregating statuses, and f
 
 ### CTGTestResult.stepResult :: STRING, STRING, STRING, INT, STRING?, OBJECT? -> OBJECT
 
-Creates a stage-type result. Returns `{ type, name, status, duration_ms, message, exception }`.
+Creates a stage-type result. Returns `{ type, name, status, durationMs, message, exception }`.
 
 ---
 
@@ -45,7 +45,7 @@ Assembles a root report from step results. Calls `countSteps`, `aggregateStatus`
 
 ```javascript
 const report = CTGTestResult.report("my test", stepResults);
-// { name, status, passed, failed, skipped, recovered, errored, total, duration_ms, steps }
+// { name, status, passed, failed, skipped, recovered, errored, total, durationMs, steps }
 ```
 
 ---
@@ -64,7 +64,7 @@ Counts steps by status at the current level only (no recursion into chains). Ret
 
 ### CTGTestResult.sumDuration :: [OBJECT] -> INT
 
-Sums `duration_ms` across steps at the current level.
+Sums `durationMs` across steps at the current level.
 
 ---
 

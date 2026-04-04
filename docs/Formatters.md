@@ -1,6 +1,14 @@
 # Formatters
 
-All formatters implement the same static contract: `static format(report, config) -> STRING`. Formatters must not include a trailing newline — the delivery layer appends it when writing to stdout.
+Formatter utilities that accept CTGTestState and return a formatted string. Formatters are not referenced by CTGTest — the caller imports and uses them directly. No trailing newline — the caller appends it.
+
+```javascript
+import CTGTestConsoleFormatter from "ctg-js-test/formatters/CTGTestConsoleFormatter.js";
+
+const state = await pipeline.start(subject, config);
+const formatted = CTGTestConsoleFormatter.format(state);
+process.stdout.write(formatted + "\n");
+```
 
 ---
 
@@ -8,9 +16,9 @@ All formatters implement the same static contract: `static format(report, config
 
 Human-readable output with indented tree structure and dot-padded status alignment.
 
-### CTGTestConsoleFormatter.format :: OBJECT, OBJECT? -> STRING
+### CTGTestConsoleFormatter.format :: CTGTestState, OBJECT? -> STRING
 
-Formats a report as human-readable text. Step types are shown in brackets, durations in parentheses, statuses right-aligned. Chain children are indented. Summary line shows counts and total duration.
+Formats state as human-readable text. Step types are shown in brackets, durations in parentheses, statuses right-aligned. Chain children are indented. Summary line shows counts and total duration.
 
 ```
 My Test
@@ -27,9 +35,9 @@ My Test
 
 Pretty-printed JSON serialization with BigInt handling.
 
-### CTGTestJsonFormatter.format :: OBJECT, OBJECT? -> STRING
+### CTGTestJsonFormatter.format :: CTGTestState, OBJECT? -> STRING
 
-Serializes the report to JSON with 2-space indentation. BigInt values are converted to strings with `"n"` suffix via a static replacer.
+Serializes the state to JSON with 2-space indentation. BigInt values are converted to strings with `"n"` suffix via a static replacer.
 
 ### CTGTestJsonFormatter.bigIntReplacer :: STRING, * -> *
 
@@ -41,9 +49,9 @@ JSON replacer function that converts BigInt values to `"Nn"` strings. Available 
 
 JUnit XML output for CI integration.
 
-### CTGTestJunitFormatter.format :: OBJECT, OBJECT? -> STRING
+### CTGTestJunitFormatter.format :: CTGTestState, OBJECT? -> STRING
 
-Produces JUnit XML. Root report maps to `<testsuite>`. Steps map to `<testcase>`. Chains map to nested `<testsuite>`. Status mapping:
+Produces JUnit XML. State results map to `<testsuite>`. Steps map to `<testcase>`. Chains map to nested `<testsuite>`. Status mapping:
 
 | Status | JUnit Element |
 |--------|---------------|
@@ -57,16 +65,15 @@ Produces JUnit XML. Root report maps to `<testsuite>`. Steps map to `<testcase>`
 
 ## Custom Formatters
 
-Pass a class with a static `format` method via the `formatter` config key:
+Any class with a static `format(state, config?)` method can be used as a formatter. The caller chooses the formatter — the pipeline does not reference formatters.
 
 ```javascript
 class MyFormatter {
-    static format(report, config = {}) {
-        return `${report.name}: ${report.status}`;
+    static format(state, config = {}) {
+        return `${state.name}: ${state.status}`;
     }
 }
 
-await test.start(subject, { output: "return", formatter: MyFormatter });
+const state = await test.start(subject);
+const output = MyFormatter.format(state);
 ```
-
-The custom formatter is used for content generation. Output mode still controls delivery (`return` gives you the string, `console`/`json`/`junit` write to stdout). `return-json` always returns the raw report object, ignoring the formatter.
