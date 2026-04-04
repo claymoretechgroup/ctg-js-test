@@ -8,7 +8,10 @@
         "./error": "./src/CTGTestError.js",
         "./result": "./src/CTGTestResult.js",
         "./step": "./src/CTGTestStep.js",
-        "./state": "./src/CTGTestState.js"
+        "./state": "./src/CTGTestState.js",
+        "./formatter/console": "./src/formatters/CTGTestConsoleFormatter.js",
+        "./formatter/json": "./src/formatters/CTGTestJsonFormatter.js",
+        "./formatter/junit": "./src/formatters/CTGTestJunitFormatter.js"
     },
     "scripts": {
         "test": "node tests/SelfTest.js"
