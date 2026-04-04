@@ -2,7 +2,9 @@
 // Carries the subject, accumulated results, config, and handoff fields.
 export default class CTGTestState {
 
-    // CONSTRUCTOR :: OBJECT -> this
+    // CONSTRUCTOR :: {subject:*, config:OBJECT, name:STRING}? -> this
+    // Creates state with optional subject, config, and name.
+    // Results starts empty. skipTargets starts empty.
     constructor({ subject = null, config = {}, name = "" } = {}) {
         this.subject = subject;
         this.config = config;
@@ -11,6 +13,12 @@ export default class CTGTestState {
         this.actual = undefined;
         this.skipTargets = {};
     }
+
+    /**
+     *
+     * Properties
+     *
+     */
 
     // GETTER :: VOID -> STRING
     // Aggregate status from results. Error > fail > recovered > skip > pass.

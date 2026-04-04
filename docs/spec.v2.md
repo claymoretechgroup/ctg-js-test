@@ -302,6 +302,16 @@ list.
   step inside a chained pipeline.
 - If the predicate is null, the skip is unconditional.
 
+#### Error Behavior
+
+If the skip predicate throws or times out:
+- The target step is **not** skipped (the predicate did not fire).
+- An error result is recorded for the skip step (visible in output).
+- `haltOnFailure` is respected — the pipeline halts if true.
+
+This ensures skip predicate bugs are visible and cannot silently alter
+control flow.
+
 ### Downstream Subclasses
 
 How CTGReactTest and CTGBrowserTest adapt to polymorphic steps is outside the

@@ -104,6 +104,32 @@ export default async function run({ test, assert }) {
         assert(threw, "skip after target threw");
     });
 
+    // ── Skip Predicate Error ──────────────────────────────────
+
+    await test("skip: predicate error records error result and does not skip target", async () => {
+        const state = await CTGTest.init("skip error")
+            .skip("bad skip", "check", () => { throw new Error("predicate boom"); })
+            .assert("check", (state) => state.subject, 5)
+            .start(5, { haltOnFailure: false });
+
+        const skipResult = state.results.find((r) => r.name === "bad skip");
+        const checkResult = state.results.find((r) => r.name === "check");
+        assert(skipResult.status === "error", "skip error recorded");
+        assert(skipResult.type === "stage", "error result type is stage, not skip");
+        assert(skipResult.message.includes("predicate boom"), "error message present");
+        assert(checkResult.status === "pass", "target was not skipped");
+    });
+
+    await test("skip: predicate error halts when haltOnFailure true", async () => {
+        const state = await CTGTest.init("skip error halt")
+            .skip("bad skip", "check", () => { throw new Error("boom"); })
+            .assert("check", (state) => state.subject, 5)
+            .start(5, { haltOnFailure: true });
+
+        assert(state.results.length === 1, "halted after skip error");
+        assert(state.results[0].status === "error", "error recorded");
+    });
+
     // ── Skip Scoping ────────────────────────────────────────────
 
     await test("skip: cannot target step inside chained pipeline", async () => {
