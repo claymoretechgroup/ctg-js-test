@@ -16,10 +16,10 @@ export default class CTGTestJsonFormatter {
         return value;
     }
 
-    // :: OBJECT, OBJECT? -> STRING
-    // Pretty-printed JSON serialization of the full report structure.
-    // NOTE: No trailing newline — delivery layer appends it.
-    static format(report, config = {}) {
-        return JSON.stringify(report, CTGTestJsonFormatter.bigIntReplacer, 2);
+    // :: CTGTestState, OBJECT? -> STRING
+    // Pretty-printed JSON serialization of the state.
+    // NOTE: No trailing newline — caller appends it.
+    static format(state, config = {}) {
+        return JSON.stringify(state, CTGTestJsonFormatter.bigIntReplacer, 2);
     }
 }

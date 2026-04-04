@@ -157,10 +157,12 @@ require modifying the pipeline class.
 
 Each step subclass implements:
 
-| Method | Description |
-|--------|-------------|
+| Method/Getter | Description |
+|---------------|-------------|
 | `validate()` | Validates the step definition (e.g., fn is callable, expected is not a function). Throws `CTGTestError` on failure. |
 | `execute(state)` | Computes a value against the state. Returns the state. Does not evaluate correctness — that is the pipeline's concern. |
+| `expectedOutcome` | Getter. Declares what the step expects for correctness evaluation. Returns `null` if the step does not require comparison. |
+| `producesResult` | Getter. Whether the step produces a result entry. Default `true`. Skip returns `false`. |
 
 Steps carry their own configuration (including error handlers) set at
 construction time. `execute(state)` is the only execution contract.
@@ -168,42 +170,63 @@ construction time. `execute(state)` is the only execution contract.
 The base CTGTestStep class defines the contract. Concrete step types implement
 it.
 
+### Expected Outcome
+
+Steps that require comparison declare their expected outcome via the
+`expectedOutcome` getter. The pipeline reads this after `execute` to
+determine how to judge the result. The step declares what it expects —
+the pipeline decides if the actual matches.
+
+| Outcome Type | Returned By | Shape |
+|-------------|-------------|-------|
+| `"value"` | AssertStep | `{ type: "value", expected: * }` |
+| `"candidates"` | AssertAnyStep | `{ type: "candidates", candidates: [*] }` |
+| `null` | StageStep, ChainStep, SkipStep | No comparison needed |
+
+The pipeline dispatches evaluation on three conditions — not on step type
+strings:
+
+1. **Chain result** — `state._chainResult` is set. Pipeline nests results.
+2. **Expected outcome** — `step.expectedOutcome` is not null. Pipeline
+   compares `state.actual` against the declared expectation.
+3. **Transform** — no expected outcome. Pipeline records pass/error from
+   execution status.
+
+The two outcome types — `"value"` and `"candidates"` — are comparison
+modes, not step-type-specific behavior. They represent the only two kinds
+of comparison: match one value, or match any of several values. New step
+types that need comparison use one of these two modes. New step types that
+do not need comparison return `null`. No pipeline edits are required to
+add a new step type.
+
+Adding a genuinely new comparison mode (beyond match-one and match-any)
+would be a pipeline-level change, because comparison is the pipeline's
+concern. This is expected to be rare — the two modes cover standard
+assertion semantics.
+
 ### Separation of Concerns
 
-- **Step** — computes a value against state, returns state
+- **Step** — computes a value against state, declares expected outcome,
+  returns state
 - **Pipeline** — sequences steps, evaluates outcomes (comparison), records
   results, controls flow (halt, skip)
 - **State** — carries the subject, results, and config through the pipeline
 - **Formatter/Reporter** — transforms the final state into output
 
-Not every step produces a value to compare. A `stage` step transforms the
-subject — no comparison. An `assert` step produces an actual value — the
-pipeline compares it to the expected value. A `skip` step evaluates a
-predicate — the pipeline uses it for flow control. Comparison is a pipeline
-concern, not a step concern.
-
 ### Step-to-Pipeline Data Handoff
 
 Steps communicate their computed values to the pipeline through the state
-object. Each step type sets a well-known field on state that the pipeline
-reads after execution:
+object:
 
-- **stage** — updates `state.subject` with the transformed value
-- **assert** — sets `state.actual` with the computed value; the pipeline
-  compares `state.actual` against the step's `expected` value
-- **assert-any** — same as assert; the pipeline compares against the
-  step's candidate list
-- **skip** — sets `state.skipTargets[targetName]` to the predicate result;
-  the pipeline checks this before executing the named target step
-- **chain** — the chained pipeline executes with the current `state.subject`.
-  The outer pipeline merges the chained pipeline's results into
-  `state.results` as a nested entry and updates `state.subject` with the
-  chained pipeline's final subject. Outer config and prior results are
-  preserved.
+- **stage** — returns state with updated `state.subject`
+- **assert / assert-any** — sets `state.actual` with the computed value
+- **skip** — sets `state.skipTargets[targetName]` to the predicate result
+- **chain** — sets `state._chainResult` with nested results and status;
+  updates `state.subject` with the chained pipeline's final subject
 
-The pipeline reads these fields, evaluates the outcome, and records the
-result on `state.results`. The step does not know whether it passed or
-failed.
+The pipeline reads these fields, evaluates the outcome using
+`step.expectedOutcome`, and records the result on `state.results` via
+CTGTestResult factories. The step does not know whether it passed or failed.
 
 ### Step Type Registration
 

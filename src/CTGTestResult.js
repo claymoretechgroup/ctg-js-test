@@ -26,26 +26,26 @@ export default class CTGTestResult {
     // :: STRING, STRING, STRING, INT, STRING?, OBJECT? -> OBJECT
     // Creates a stage-type result structure.
     static stepResult(type, name, status, durationMs, message = null, exception = null) {
-        return { type, name, status, duration_ms: durationMs, message, exception };
+        return { type, name, status, durationMs: durationMs, message, exception };
     }
 
     // :: STRING, STRING, INT, *, *, STRING?, OBJECT? -> OBJECT
     // Creates an assert result with actual and expected fields.
     static assertResult(name, status, durationMs, actual, expected, message = null, exception = null) {
-        return { type: "assert", name, status, duration_ms: durationMs, actual, expected, message, exception };
+        return { type: "assert", name, status, durationMs: durationMs, actual, expected, message, exception };
     }
 
     // :: STRING, STRING, INT, *, [*], STRING?, OBJECT? -> OBJECT
     // Creates an assert-any result with actual and candidates fields.
     static assertAnyResult(name, status, durationMs, actual, candidates, message = null, exception = null) {
-        return { type: "assert-any", name, status, duration_ms: durationMs, actual, candidates, message, exception };
+        return { type: "assert-any", name, status, durationMs: durationMs, actual, candidates, message, exception };
     }
 
     // :: STRING, STRING, INT, STRING?, OBJECT?, [OBJECT], OBJECT -> OBJECT
     // Creates a chain result with nested step results and aggregate counts.
     static chainResult(name, status, durationMs, message, exception, steps, counts) {
         return {
-            type: "chain", name, status, duration_ms: durationMs, message, exception, steps,
+            type: "chain", name, status, durationMs: durationMs, message, exception, steps,
             passed: counts.passed, failed: counts.failed, skipped: counts.skipped,
             recovered: counts.recovered, errored: counts.errored, total: counts.total
         };
@@ -69,7 +69,7 @@ export default class CTGTestResult {
             name, status,
             passed: counts.passed, failed: counts.failed, skipped: counts.skipped,
             recovered: counts.recovered, errored: counts.errored, total: counts.total,
-            duration_ms: durationMs, steps
+            durationMs: durationMs, steps
         };
     }
 
@@ -108,11 +108,11 @@ export default class CTGTestResult {
     }
 
     // :: [OBJECT] -> INT
-    // Sums duration_ms across steps at current level.
+    // Sums durationMs across steps at current level.
     static sumDuration(steps) {
         let total = 0;
         for (const step of steps) {
-            total += step.duration_ms || 0;
+            total += step.durationMs || 0;
         }
         return total;
     }

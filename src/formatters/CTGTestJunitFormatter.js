@@ -1,4 +1,4 @@
-// Formats report as JUnit XML for CI integration
+// Formats CTGTestState as JUnit XML for CI integration
 import CTGTestResult from "../CTGTestResult.js"; // Result utilities for formatValue
 
 // JUnit XML formatter mapping test results to testsuite/testcase elements
@@ -10,30 +10,34 @@ export default class CTGTestJunitFormatter {
      *
      */
 
-    // :: OBJECT, OBJECT? -> STRING
-    // Produces JUnit XML output from a report structure.
-    // NOTE: No trailing newline — delivery layer appends it.
-    static format(report, config = {}) {
+    // :: CTGTestState, OBJECT? -> STRING
+    // Produces JUnit XML output from a CTGTestState.
+    // NOTE: No trailing newline — caller appends it.
+    static format(state, config = {}) {
         const lines = [];
         lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-        CTGTestJunitFormatter._formatSuite(report, lines, config);
+        CTGTestJunitFormatter._formatSuite(state, lines, config);
         return lines.join("\n");
     }
 
     // :: OBJECT, [STRING], OBJECT -> VOID
-    // Formats a suite (report or chain) as a <testsuite> element.
+    // Formats a suite (state or chain result) as a <testsuite> element.
     static _formatSuite(suite, lines, config) {
-        const time = (suite.duration_ms / 1000).toFixed(3);
+        const results = suite.results || suite.steps || [];
+        const counts = CTGTestJunitFormatter._countResults(results);
+        const totalMs = results.reduce((sum, r) => sum + (r.durationMs || 0), 0);
+        const time = (totalMs / 1000).toFixed(3);
+
         lines.push(
             `<testsuite name=${CTGTestJunitFormatter._attr(suite.name)}` +
-            ` tests="${suite.total}"` +
-            ` failures="${suite.failed}"` +
-            ` errors="${suite.errored}"` +
-            ` skipped="${suite.skipped}"` +
+            ` tests="${counts.total}"` +
+            ` failures="${counts.failed}"` +
+            ` errors="${counts.errored}"` +
+            ` skipped="${counts.skipped}"` +
             ` time="${time}">`
         );
 
-        for (const step of suite.steps) {
+        for (const step of results) {
             if (step.type === "chain") {
                 CTGTestJunitFormatter._formatSuite(step, lines, config);
             } else {
@@ -47,7 +51,8 @@ export default class CTGTestJunitFormatter {
     // :: OBJECT, [STRING], OBJECT -> VOID
     // Formats a single step as a <testcase> element with status-specific children.
     static _formatCase(step, lines, config) {
-        const time = (step.duration_ms / 1000).toFixed(3);
+        const ms = step.durationMs || 0;
+        const time = (ms / 1000).toFixed(3);
         const nameAttr = CTGTestJunitFormatter._attr(step.name);
 
         if (step.status === "pass") {
@@ -72,13 +77,8 @@ export default class CTGTestJunitFormatter {
         }
 
         if (step.status === "error") {
-            const exc = step.exception || {};
-            const msg = step.message || exc.message || "";
-            const type = exc.class || "Error";
-            lines.push(`    <error message=${CTGTestJunitFormatter._attr(msg)} type=${CTGTestJunitFormatter._attr(type)}>`);
-            if (exc.trace) {
-                lines.push(CTGTestJunitFormatter._escape(exc.trace));
-            }
+            const msg = step.message || "";
+            lines.push(`    <error message=${CTGTestJunitFormatter._attr(msg)} type="Error">`);
             lines.push("    </error>");
         }
 
@@ -90,17 +90,26 @@ export default class CTGTestJunitFormatter {
             const msg = step.message || "";
             lines.push("    <system-out>");
             lines.push(`Recovery: ${CTGTestJunitFormatter._escape(msg)}`);
-            if (step.exception && step.exception.trace) {
-                lines.push(CTGTestJunitFormatter._escape(step.exception.trace));
-            }
             lines.push("    </system-out>");
         }
 
         lines.push("  </testcase>");
     }
 
+    // :: [OBJECT] -> OBJECT
+    static _countResults(results) {
+        let passed = 0, failed = 0, skipped = 0, recovered = 0, errored = 0;
+        for (const r of results) {
+            if (r.status === "pass") passed++;
+            else if (r.status === "fail") failed++;
+            else if (r.status === "skip") skipped++;
+            else if (r.status === "recovered") recovered++;
+            else if (r.status === "error") errored++;
+        }
+        return { total: results.length, passed, failed, skipped, recovered, errored };
+    }
+
     // :: STRING -> STRING
-    // Escapes XML special characters in text content.
     static _escape(str) {
         return String(str)
             .replace(/&/g, "&amp;")
@@ -111,7 +120,6 @@ export default class CTGTestJunitFormatter {
     }
 
     // :: STRING -> STRING
-    // Wraps a string as a quoted, XML-escaped attribute value.
     static _attr(str) {
         return `"${CTGTestJunitFormatter._escape(str)}"`;
     }

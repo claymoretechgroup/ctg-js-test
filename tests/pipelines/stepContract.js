@@ -68,4 +68,16 @@ export default async function run({ test, assert }) {
         const step = new CTGTestStep("stage", "my step");
         assert(step.errorHandler === null, "default is null");
     });
+
+    // ── producesResult Contract ─────────────────────────────────
+
+    await test("step: base class has producesResult getter", () => {
+        const step = new CTGTestStep("base", "test step");
+        assert(typeof step.producesResult === "boolean", "producesResult is boolean");
+    });
+
+    await test("step: producesResult defaults to true", () => {
+        const step = new CTGTestStep("base", "test step");
+        assert(step.producesResult === true, "default is true");
+    });
 }

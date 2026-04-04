@@ -75,6 +75,15 @@ export default async function run({ test, assert }) {
         assert(receivedArg.subject === 5, "subject accessible on state");
     });
 
+    // ── Return Contract ─────────────────────────────────────────
+
+    await test("stage: non-state return produces error", async () => {
+        const state = await CTGTest.init("bad return")
+            .stage("bad", () => 42)
+            .start(1, { haltOnFailure: false });
+        assert(state.results[0].status === "error", "non-state return errored");
+    });
+
     // ── Validation ──────────────────────────────────────────────
 
     await test("stage: non-function fn fails validation", async () => {

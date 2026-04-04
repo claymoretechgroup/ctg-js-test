@@ -92,6 +92,30 @@ export default async function run({ test, assert }) {
         assert(threw, "collector rejected");
     });
 
+    await test("result: trace config key rejected", async () => {
+        let threw = false;
+        try {
+            await CTGTest.init("bad config")
+                .stage("noop", (state) => state)
+                .start(null, { trace: true });
+        } catch {
+            threw = true;
+        }
+        assert(threw, "trace rejected");
+    });
+
+    await test("result: debug config key rejected", async () => {
+        let threw = false;
+        try {
+            await CTGTest.init("bad config")
+                .stage("noop", (state) => state)
+                .start(null, { debug: true });
+        } catch {
+            threw = true;
+        }
+        assert(threw, "debug rejected");
+    });
+
     await test("result: publishResult config key rejected", async () => {
         let threw = false;
         try {
