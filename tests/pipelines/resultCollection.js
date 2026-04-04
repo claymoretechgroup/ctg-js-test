@@ -5,6 +5,7 @@
 
 import CTGTest from "../../src/CTGTest.js";
 import CTGTestState from "../../src/CTGTestState.js";
+import CTGTestResult from "../../src/CTGTestResult.js";
 
 // :: OBJECT -> PROMISE(VOID)
 export default async function run({ test, assert }) {
@@ -30,7 +31,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("has status")
             .assert("check", (state) => state.subject, 5)
             .start(5);
-        assert(state.status === "pass", "status is pass");
+        assert(state.status === CTGTestResult.STATUS.PASS, "status is pass");
     });
 
     await test("result: returned state has name", async () => {
@@ -160,8 +161,8 @@ export default async function run({ test, assert }) {
         collector.push({ name: state2.name, status: state2.status });
 
         assert(collector.length === 2, "two entries");
-        assert(collector[0].status === "pass", "first passed");
-        assert(collector[1].status === "fail", "second failed");
+        assert(collector[0].status === CTGTestResult.STATUS.PASS, "first passed");
+        assert(collector[1].status === CTGTestResult.STATUS.FAIL, "second failed");
     });
 
     // ── Inner Pipeline Does Not Pollute Caller ──────────────────
@@ -179,12 +180,12 @@ export default async function run({ test, assert }) {
                 state.subject = innerState.status;
                 return state;
             })
-            .assert("inner failed", (state) => state.subject, "fail")
+            .assert("inner failed", (state) => state.subject, CTGTestResult.STATUS.FAIL)
             .start(null);
 
         collector.push({ name: state.name, status: state.status });
 
         assert(collector.length === 1, "only outer collected");
-        assert(collector[0].status === "pass", "outer passed");
+        assert(collector[0].status === CTGTestResult.STATUS.PASS, "outer passed");
     });
 }

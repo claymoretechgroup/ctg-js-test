@@ -1,5 +1,6 @@
 import CTGTestStep from "../CTGTestStep.js"; // Abstract step base
 import CTGTestError from "../CTGTestError.js"; // Typed errors
+import CTGTestResult from "../CTGTestResult.js"; // Status enum
 import CTGTestState from "../CTGTestState.js"; // Pipeline state
 
 // Stage step — transforms the subject on state.
@@ -63,15 +64,15 @@ export default class StageStep extends CTGTestStep {
                 try {
                     const recovered = await this._errorHandler(err);
                     state.subject = recovered;
-                    state._lastStepStatus = "recovered";
+                    state._lastStepStatus = CTGTestResult.STATUS.RECOVERED;
                     return state;
                 } catch (handlerErr) {
-                    state._lastStepStatus = "error";
+                    state._lastStepStatus = CTGTestResult.STATUS.ERROR;
                     state._lastStepMessage = handlerErr.message;
                     return state;
                 }
             }
-            state._lastStepStatus = "error";
+            state._lastStepStatus = CTGTestResult.STATUS.ERROR;
             state._lastStepMessage = err.message;
             return state;
         }

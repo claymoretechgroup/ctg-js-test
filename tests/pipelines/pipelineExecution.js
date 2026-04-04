@@ -4,6 +4,7 @@
 // and the step-to-pipeline data handoff.
 
 import CTGTest from "../../src/CTGTest.js";
+import CTGTestResult from "../../src/CTGTestResult.js";
 
 // :: OBJECT -> PROMISE(VOID)
 export default async function run({ test, assert }) {
@@ -24,7 +25,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("empty")
             .start(null);
         assert(state.results.length === 0, "no results");
-        assert(state.status === "pass", "empty is pass");
+        assert(state.status === CTGTestResult.STATUS.PASS, "empty is pass");
     });
 
     // ── Halt on Failure ─────────────────────────────────────────
@@ -36,7 +37,7 @@ export default async function run({ test, assert }) {
             .assert("unreachable", (state) => 1, 1)
             .start(null, { haltOnFailure: true });
         assert(state.results.length === 2, "stopped after fail");
-        assert(state.results[1].status === "fail", "second is fail");
+        assert(state.results[1].status === CTGTestResult.STATUS.FAIL, "second is fail");
     });
 
     await test("pipeline: haltOnFailure false runs all steps", async () => {
@@ -55,7 +56,7 @@ export default async function run({ test, assert }) {
             .assert("still runs", (state) => state.subject, "boom")
             .start(null, { haltOnFailure: true });
         assert(state.results.length === 2, "both ran");
-        assert(state.results[0].status === "recovered", "first is recovered");
+        assert(state.results[0].status === CTGTestResult.STATUS.RECOVERED, "first is recovered");
     });
 
     // ── Subject Threading ───────────────────────────────────────
@@ -65,7 +66,7 @@ export default async function run({ test, assert }) {
             .stage("set", (state) => { state.subject = 42; return state; })
             .assert("check", (state) => state.subject, 42)
             .start(null);
-        assert(state.status === "pass", "threaded correctly");
+        assert(state.status === CTGTestResult.STATUS.PASS, "threaded correctly");
     });
 
     await test("pipeline: assert does not update subject", async () => {
@@ -74,7 +75,7 @@ export default async function run({ test, assert }) {
             .assert("compute", (state) => state.subject * 2, 10)
             .assert("still 5", (state) => state.subject, 5)
             .start(null);
-        assert(state.status === "pass", "subject unchanged after assert");
+        assert(state.status === CTGTestResult.STATUS.PASS, "subject unchanged after assert");
     });
 
     // ── Comparison ──────────────────────────────────────────────
@@ -83,14 +84,14 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("deep compare")
             .assert("check", (state) => ({ a: 1, b: [2, 3] }), { a: 1, b: [2, 3] })
             .start(null);
-        assert(state.results[0].status === "pass", "deep equal passes");
+        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "deep equal passes");
     });
 
     await test("pipeline: deep object mismatch fails", async () => {
         const state = await CTGTest.init("deep mismatch")
             .assert("check", (state) => ({ a: 1 }), { a: 2 })
             .start(null, { haltOnFailure: false });
-        assert(state.results[0].status === "fail", "deep mismatch fails");
+        assert(state.results[0].status === CTGTestResult.STATUS.FAIL, "deep mismatch fails");
     });
 
     // ── Config ──────────────────────────────────────────────────
@@ -99,7 +100,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("config access")
             .assert("check", (state) => state.config.strict, true)
             .start(null, { strict: true });
-        assert(state.results[0].status === "pass", "config on state");
+        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "config on state");
     });
 
     // ── Duplicate Step Names ────────────────────────────────────
@@ -137,13 +138,13 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("wrap")
             .assert("check", (state) => state.subject, 42)
             .start(42);
-        assert(state.results[0].status === "pass", "raw value wrapped");
+        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "raw value wrapped");
     });
 
     await test("pipeline: start accepts null subject", async () => {
         const state = await CTGTest.init("null subject")
             .assert("check", (state) => state.subject, null)
             .start(null);
-        assert(state.results[0].status === "pass", "null subject works");
+        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "null subject works");
     });
 }

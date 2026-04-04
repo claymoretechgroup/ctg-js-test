@@ -5,6 +5,7 @@
 
 import CTGTest from "../../src/CTGTest.js";
 import CTGTestState from "../../src/CTGTestState.js";
+import CTGTestResult from "../../src/CTGTestResult.js";
 import CTGTestConsoleFormatter from "../../src/formatters/CTGTestConsoleFormatter.js";
 import CTGTestJsonFormatter from "../../src/formatters/CTGTestJsonFormatter.js";
 import CTGTestJunitFormatter from "../../src/formatters/CTGTestJunitFormatter.js";
@@ -48,36 +49,36 @@ export default async function run({ test, assert }) {
 
     await test("runner: pass status is non-failing", () => {
         const state = new CTGTestState({ subject: 1, name: "test" });
-        state.results.push({ name: "a", status: "pass" });
-        const failing = state.status === "fail" || state.status === "error";
+        state.results.push({ name: "a", status: CTGTestResult.STATUS.PASS });
+        const failing = state.status === CTGTestResult.STATUS.FAIL || state.status === CTGTestResult.STATUS.ERROR;
         assert(!failing, "pass is non-failing");
     });
 
     await test("runner: recovered status is non-failing", () => {
         const state = new CTGTestState({ subject: 1, name: "test" });
-        state.results.push({ name: "a", status: "recovered" });
-        const failing = state.status === "fail" || state.status === "error";
+        state.results.push({ name: "a", status: CTGTestResult.STATUS.RECOVERED });
+        const failing = state.status === CTGTestResult.STATUS.FAIL || state.status === CTGTestResult.STATUS.ERROR;
         assert(!failing, "recovered is non-failing");
     });
 
     await test("runner: skip status is non-failing", () => {
         const state = new CTGTestState({ subject: 1, name: "test" });
-        state.results.push({ name: "a", status: "skip" });
-        const failing = state.status === "fail" || state.status === "error";
+        state.results.push({ name: "a", status: CTGTestResult.STATUS.SKIP });
+        const failing = state.status === CTGTestResult.STATUS.FAIL || state.status === CTGTestResult.STATUS.ERROR;
         assert(!failing, "skip is non-failing");
     });
 
     await test("runner: fail status is failing", () => {
         const state = new CTGTestState({ subject: 1, name: "test" });
-        state.results.push({ name: "a", status: "fail" });
-        const failing = state.status === "fail" || state.status === "error";
+        state.results.push({ name: "a", status: CTGTestResult.STATUS.FAIL });
+        const failing = state.status === CTGTestResult.STATUS.FAIL || state.status === CTGTestResult.STATUS.ERROR;
         assert(failing, "fail is failing");
     });
 
     await test("runner: error status is failing", () => {
         const state = new CTGTestState({ subject: 1, name: "test" });
-        state.results.push({ name: "a", status: "error" });
-        const failing = state.status === "fail" || state.status === "error";
+        state.results.push({ name: "a", status: CTGTestResult.STATUS.ERROR });
+        const failing = state.status === CTGTestResult.STATUS.FAIL || state.status === CTGTestResult.STATUS.ERROR;
         assert(failing, "error is failing");
     });
 

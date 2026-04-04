@@ -5,6 +5,7 @@
 
 import CTGTest from "../../src/CTGTest.js";
 import CTGTestState from "../../src/CTGTestState.js";
+import CTGTestResult from "../../src/CTGTestResult.js";
 
 // :: OBJECT -> PROMISE(VOID)
 export default async function run({ test, assert }) {
@@ -15,7 +16,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("assert pass")
             .assert("check", (state) => state.subject, 5)
             .start(5);
-        assert(state.results[0].status === "pass", "status is pass");
+        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "status is pass");
     });
 
     // ── Fail ────────────────────────────────────────────────────
@@ -24,7 +25,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("assert fail")
             .assert("check", (state) => state.subject, 99)
             .start(5, { haltOnFailure: false });
-        assert(state.results[0].status === "fail", "status is fail");
+        assert(state.results[0].status === CTGTestResult.STATUS.FAIL, "status is fail");
     });
 
     // ── Does Not Mutate Subject ─────────────────────────────────
@@ -62,7 +63,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("async assert")
             .assert("check", async (state) => state.subject, 5)
             .start(5);
-        assert(state.results[0].status === "pass", "async pass");
+        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "async pass");
     });
 
     // ── v2 Callback Signature ─────────────────────────────────
@@ -81,14 +82,14 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("strict assert")
             .assert("check", (state) => state.subject, "5")
             .start(5, { strict: true, haltOnFailure: false });
-        assert(state.results[0].status === "fail", "strict rejects 5 === '5'");
+        assert(state.results[0].status === CTGTestResult.STATUS.FAIL, "strict rejects 5 === '5'");
     });
 
     await test("assert: loose mode passes on type coercion", async () => {
         const state = await CTGTest.init("loose assert")
             .assert("check", (state) => state.subject, "5")
             .start(5, { strict: false });
-        assert(state.results[0].status === "pass", "loose accepts 5 == '5'");
+        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "loose accepts 5 == '5'");
     });
 
     // ── Error Handling ──────────────────────────────────────────
@@ -97,7 +98,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("assert error")
             .assert("check", () => { throw new Error("boom"); }, 5)
             .start(1, { haltOnFailure: false });
-        assert(state.results[0].status === "error", "status is error");
+        assert(state.results[0].status === CTGTestResult.STATUS.ERROR, "status is error");
     });
 
     await test("assert: error handler recovers and re-compares", async () => {
@@ -105,7 +106,7 @@ export default async function run({ test, assert }) {
             .assert("check", () => { throw new Error("boom"); }, "boom",
                 (err) => err.message)
             .start(1);
-        assert(state.results[0].status === "recovered", "status is recovered");
+        assert(state.results[0].status === CTGTestResult.STATUS.RECOVERED, "status is recovered");
     });
 
     // ── Validation ──────────────────────────────────────────────

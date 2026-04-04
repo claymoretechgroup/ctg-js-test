@@ -4,6 +4,7 @@
 // a list of candidates. Passes if actual matches any candidate.
 
 import CTGTest from "../../src/CTGTest.js";
+import CTGTestResult from "../../src/CTGTestResult.js";
 
 // :: OBJECT -> PROMISE(VOID)
 export default async function run({ test, assert }) {
@@ -14,7 +15,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("assertAny pass")
             .assertAny("check", (state) => state.subject, [1, 5, 10])
             .start(5);
-        assert(state.results[0].status === "pass", "matched candidate");
+        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "matched candidate");
     });
 
     // ── Fail ────────────────────────────────────────────────────
@@ -23,14 +24,14 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("assertAny fail")
             .assertAny("check", (state) => state.subject, [1, 2, 3])
             .start(5, { haltOnFailure: false });
-        assert(state.results[0].status === "fail", "no match");
+        assert(state.results[0].status === CTGTestResult.STATUS.FAIL, "no match");
     });
 
     await test("assertAny: empty candidates always fails", async () => {
         const state = await CTGTest.init("assertAny empty")
             .assertAny("check", (state) => state.subject, [])
             .start(5, { haltOnFailure: false });
-        assert(state.results[0].status === "fail", "empty always fails");
+        assert(state.results[0].status === CTGTestResult.STATUS.FAIL, "empty always fails");
     });
 
     // ── Result Shape ────────────────────────────────────────────
@@ -60,14 +61,14 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("assertAny strict")
             .assertAny("check", (state) => state.subject, ["5"])
             .start(5, { strict: true, haltOnFailure: false });
-        assert(state.results[0].status === "fail", "strict rejects type coercion");
+        assert(state.results[0].status === CTGTestResult.STATUS.FAIL, "strict rejects type coercion");
     });
 
     await test("assertAny: loose mode allows type coercion", async () => {
         const state = await CTGTest.init("assertAny loose")
             .assertAny("check", (state) => state.subject, ["5"])
             .start(5, { strict: false });
-        assert(state.results[0].status === "pass", "loose accepts coercion");
+        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "loose accepts coercion");
     });
 
     // ── Error Handling ──────────────────────────────────────────
@@ -76,7 +77,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("assertAny error")
             .assertAny("check", () => { throw new Error("boom"); }, [1])
             .start(1, { haltOnFailure: false });
-        assert(state.results[0].status === "error", "status is error");
+        assert(state.results[0].status === CTGTestResult.STATUS.ERROR, "status is error");
     });
 
     await test("assertAny: error handler recovers and re-compares", async () => {
@@ -84,7 +85,7 @@ export default async function run({ test, assert }) {
             .assertAny("check", () => { throw new Error("boom"); }, ["boom", "bang"],
                 (err) => err.message)
             .start(1);
-        assert(state.results[0].status === "recovered", "status is recovered");
+        assert(state.results[0].status === CTGTestResult.STATUS.RECOVERED, "status is recovered");
     });
 
     // ── Validation ──────────────────────────────────────────────

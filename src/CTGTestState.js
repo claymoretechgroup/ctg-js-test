@@ -1,3 +1,5 @@
+import CTGTestResult from "./CTGTestResult.js"; // Status enum and labels
+
 // Mutable state object threaded through pipeline steps.
 // Carries the subject, accumulated results, config, and handoff fields.
 export default class CTGTestState {
@@ -20,25 +22,26 @@ export default class CTGTestState {
      *
      */
 
-    // GETTER :: VOID -> STRING
+    // GETTER :: VOID -> INT
     // Aggregate status from results. Error > fail > recovered > skip > pass.
     get status() {
+        const S = CTGTestResult.STATUS;
         let hasError = false;
         let hasFail = false;
         let hasRecovered = false;
         let hasSkip = false;
 
         for (const result of this.results) {
-            if (result.status === "error") hasError = true;
-            else if (result.status === "fail") hasFail = true;
-            else if (result.status === "recovered") hasRecovered = true;
-            else if (result.status === "skip") hasSkip = true;
+            if (result.status === S.ERROR) hasError = true;
+            else if (result.status === S.FAIL) hasFail = true;
+            else if (result.status === S.RECOVERED) hasRecovered = true;
+            else if (result.status === S.SKIP) hasSkip = true;
         }
 
-        if (hasError) return "error";
-        if (hasFail) return "fail";
-        if (hasRecovered) return "recovered";
-        if (hasSkip) return "skip";
-        return "pass";
+        if (hasError) return S.ERROR;
+        if (hasFail) return S.FAIL;
+        if (hasRecovered) return S.RECOVERED;
+        if (hasSkip) return S.SKIP;
+        return S.PASS;
     }
 }

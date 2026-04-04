@@ -4,6 +4,7 @@
 // Results are nested. Outer config and prior results are preserved.
 
 import CTGTest from "../../src/CTGTest.js";
+import CTGTestResult from "../../src/CTGTestResult.js";
 
 // :: OBJECT -> PROMISE(VOID)
 export default async function run({ test, assert }) {
@@ -34,7 +35,7 @@ export default async function run({ test, assert }) {
             .start(5);
 
         assert(state.subject === 12, "(5 + 1) * 2 = 12");
-        assert(state.status === "pass", "pipeline passes");
+        assert(state.status === CTGTestResult.STATUS.PASS, "pipeline passes");
     });
 
     // ── Results Nesting ─────────────────────────────────────────
@@ -83,7 +84,7 @@ export default async function run({ test, assert }) {
             .start(5, { haltOnFailure: false });
 
         const chainResult = state.results[0];
-        assert(chainResult.status === "fail", "chain reports failure");
+        assert(chainResult.status === CTGTestResult.STATUS.FAIL, "chain reports failure");
     });
 
     // ── Validation ──────────────────────────────────────────────

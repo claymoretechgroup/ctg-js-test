@@ -15,6 +15,7 @@
 // Run: node tests/SelfTest.js
 
 import CTGTestConsoleFormatter from "../src/formatters/CTGTestConsoleFormatter.js";
+import CTGTestResult from "../src/CTGTestResult.js";
 
 // ── Pipeline Categories ─────────────────────────────────────────
 
@@ -126,7 +127,7 @@ collector.push({ name: recoveredState.name, status: recoveredState.status });
 // Check both bootstrap results and collector.
 
 const collectorFailed = collector.some(
-    (r) => r.status === "fail" || r.status === "error"
+    (r) => r.status === CTGTestResult.STATUS.FAIL || r.status === CTGTestResult.STATUS.ERROR
 );
 
 process.stdout.write(`\n=== Bootstrap: ${totalPassed}/${totalTests} passed ===\n`);

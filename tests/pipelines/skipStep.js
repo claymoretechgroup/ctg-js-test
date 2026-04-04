@@ -4,6 +4,7 @@
 // a predicate against state and determines whether the target executes.
 
 import CTGTest from "../../src/CTGTest.js";
+import CTGTestResult from "../../src/CTGTestResult.js";
 
 // :: OBJECT -> PROMISE(VOID)
 export default async function run({ test, assert }) {
@@ -17,7 +18,7 @@ export default async function run({ test, assert }) {
             .start(5);
 
         const result = state.results.find((r) => r.name === "check");
-        assert(result.status === "skip", "target was skipped");
+        assert(result.status === CTGTestResult.STATUS.SKIP, "target was skipped");
     });
 
     // ── Conditional Skip — True ─────────────────────────────────
@@ -29,7 +30,7 @@ export default async function run({ test, assert }) {
             .start(-1);
 
         const result = state.results.find((r) => r.name === "check");
-        assert(result.status === "skip", "negative subject skipped");
+        assert(result.status === CTGTestResult.STATUS.SKIP, "negative subject skipped");
     });
 
     // ── Conditional Skip — False ────────────────────────────────
@@ -41,7 +42,7 @@ export default async function run({ test, assert }) {
             .start(5);
 
         const result = state.results.find((r) => r.name === "check");
-        assert(result.status === "pass", "positive subject not skipped");
+        assert(result.status === CTGTestResult.STATUS.PASS, "positive subject not skipped");
     });
 
     // ── Skip Does Not Affect Other Steps ────────────────────────
@@ -57,9 +58,9 @@ export default async function run({ test, assert }) {
         const first = state.results.find((r) => r.name === "first");
         const second = state.results.find((r) => r.name === "second");
         const third = state.results.find((r) => r.name === "third");
-        assert(first.status === "pass", "first ran");
-        assert(second.status === "skip", "second skipped");
-        assert(third.status === "pass", "third ran");
+        assert(first.status === CTGTestResult.STATUS.PASS, "first ran");
+        assert(second.status === CTGTestResult.STATUS.SKIP, "second skipped");
+        assert(third.status === CTGTestResult.STATUS.PASS, "third ran");
     });
 
     // ── Ordering Rules ──────────────────────────────────────────
@@ -114,10 +115,10 @@ export default async function run({ test, assert }) {
 
         const skipResult = state.results.find((r) => r.name === "bad skip");
         const checkResult = state.results.find((r) => r.name === "check");
-        assert(skipResult.status === "error", "skip error recorded");
+        assert(skipResult.status === CTGTestResult.STATUS.ERROR, "skip error recorded");
         assert(skipResult.type === "stage", "error result type is stage, not skip");
         assert(skipResult.message.includes("predicate boom"), "error message present");
-        assert(checkResult.status === "pass", "target was not skipped");
+        assert(checkResult.status === CTGTestResult.STATUS.PASS, "target was not skipped");
     });
 
     await test("skip: predicate error halts when haltOnFailure true", async () => {
@@ -127,7 +128,7 @@ export default async function run({ test, assert }) {
             .start(5, { haltOnFailure: true });
 
         assert(state.results.length === 1, "halted after skip error");
-        assert(state.results[0].status === "error", "error recorded");
+        assert(state.results[0].status === CTGTestResult.STATUS.ERROR, "error recorded");
     });
 
     // ── Skip Scoping ────────────────────────────────────────────

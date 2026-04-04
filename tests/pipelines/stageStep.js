@@ -5,6 +5,7 @@
 
 import CTGTest from "../../src/CTGTest.js";
 import CTGTestState from "../../src/CTGTestState.js";
+import CTGTestResult from "../../src/CTGTestResult.js";
 
 // :: OBJECT -> PROMISE(VOID)
 export default async function run({ test, assert }) {
@@ -31,7 +32,7 @@ export default async function run({ test, assert }) {
             .stage("noop", (state) => state)
             .start(1);
         assert(state.results.length === 1, "one result");
-        assert(state.results[0].status === "pass", "status is pass");
+        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "status is pass");
         assert(state.results[0].name === "noop", "name matches");
     });
 
@@ -53,7 +54,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("stage error")
             .stage("fail", () => { throw new Error("boom"); })
             .start(1, { haltOnFailure: false });
-        assert(state.results[0].status === "error", "status is error");
+        assert(state.results[0].status === CTGTestResult.STATUS.ERROR, "status is error");
     });
 
     await test("stage: error handler recovers", async () => {
@@ -61,7 +62,7 @@ export default async function run({ test, assert }) {
             .stage("fail", () => { throw new Error("boom"); },
                 (err) => err.message)
             .start(1);
-        assert(state.results[0].status === "recovered", "status is recovered");
+        assert(state.results[0].status === CTGTestResult.STATUS.RECOVERED, "status is recovered");
     });
 
     // ── v2 Callback Signature ─────────────────────────────────
@@ -81,7 +82,7 @@ export default async function run({ test, assert }) {
         const state = await CTGTest.init("bad return")
             .stage("bad", () => 42)
             .start(1, { haltOnFailure: false });
-        assert(state.results[0].status === "error", "non-state return errored");
+        assert(state.results[0].status === CTGTestResult.STATUS.ERROR, "non-state return errored");
     });
 
     // ── Validation ──────────────────────────────────────────────

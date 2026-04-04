@@ -3,19 +3,29 @@ export default class CTGTestResult {
 
     /* Static Fields */
 
-    static STATUS_PASS      = "pass";
-    static STATUS_FAIL      = "fail";
-    static STATUS_ERROR     = "error";
-    static STATUS_RECOVERED = "recovered";
-    static STATUS_SKIP      = "skip";
+    static STATUS = Object.freeze({
+        PASS:      0,
+        FAIL:      1,
+        ERROR:     2,
+        RECOVERED: 3,
+        SKIP:      4
+    });
 
-    static SEVERITY = {
-        "error":     5,
-        "fail":      4,
-        "recovered": 3,
-        "pass":      2,
-        "skip":      1
-    };
+    static STATUS_LABELS = Object.freeze({
+        0: "pass",
+        1: "fail",
+        2: "error",
+        3: "recovered",
+        4: "skip"
+    });
+
+    static SEVERITY = Object.freeze({
+        [CTGTestResult.STATUS.ERROR]:     5,
+        [CTGTestResult.STATUS.FAIL]:      4,
+        [CTGTestResult.STATUS.RECOVERED]: 3,
+        [CTGTestResult.STATUS.PASS]:      2,
+        [CTGTestResult.STATUS.SKIP]:      1
+    });
 
     /**
      *
@@ -73,13 +83,20 @@ export default class CTGTestResult {
         };
     }
 
-    // :: [OBJECT] -> STRING
+    // :: INT -> STRING
+    // Resolves a status code to its human-readable label.
+    static statusLabel(code) {
+        return CTGTestResult.STATUS_LABELS[code];
+    }
+
+    // :: [OBJECT] -> INT
     // Derives worst status from child steps using severity ordering.
-    // NOTE: Empty list returns "pass".
+    // NOTE: Empty list returns STATUS.PASS.
     static aggregateStatus(steps) {
-        if (steps.length === 0) return "pass";
+        const S = CTGTestResult.STATUS;
+        if (steps.length === 0) return S.PASS;
         let maxSeverity = 0;
-        let maxStatus = "pass";
+        let maxStatus = S.PASS;
         for (const step of steps) {
             const sev = CTGTestResult.SEVERITY[step.status] || 0;
             if (sev > maxSeverity) {
@@ -93,15 +110,16 @@ export default class CTGTestResult {
     // :: [OBJECT] -> OBJECT
     // Counts steps by status at current level only (no recursion into chains).
     static countSteps(steps) {
+        const S = CTGTestResult.STATUS;
         const counts = { passed: 0, failed: 0, skipped: 0, recovered: 0, errored: 0, total: 0 };
         for (const step of steps) {
             counts.total++;
             switch (step.status) {
-                case "pass":      counts.passed++;    break;
-                case "fail":      counts.failed++;    break;
-                case "skip":      counts.skipped++;   break;
-                case "recovered": counts.recovered++; break;
-                case "error":     counts.errored++;   break;
+                case S.PASS:      counts.passed++;    break;
+                case S.FAIL:      counts.failed++;    break;
+                case S.SKIP:      counts.skipped++;   break;
+                case S.RECOVERED: counts.recovered++; break;
+                case S.ERROR:     counts.errored++;   break;
             }
         }
         return counts;

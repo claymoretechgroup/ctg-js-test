@@ -1,5 +1,6 @@
 import CTGTestStep from "../CTGTestStep.js"; // Abstract step base
 import CTGTestError from "../CTGTestError.js"; // Typed errors
+import CTGTestResult from "../CTGTestResult.js"; // Status enum
 
 // Assert step — computes an actual value from state.
 // The pipeline compares actual to expected after execution.
@@ -73,15 +74,15 @@ export default class AssertStep extends CTGTestStep {
                 try {
                     const recovered = await this._errorHandler(err);
                     state.actual = recovered;
-                    state._lastStepStatus = "recovered";
+                    state._lastStepStatus = CTGTestResult.STATUS.RECOVERED;
                     return state;
                 } catch (handlerErr) {
-                    state._lastStepStatus = "error";
+                    state._lastStepStatus = CTGTestResult.STATUS.ERROR;
                     state._lastStepMessage = handlerErr.message;
                     return state;
                 }
             }
-            state._lastStepStatus = "error";
+            state._lastStepStatus = CTGTestResult.STATUS.ERROR;
             state._lastStepMessage = err.message;
             return state;
         }

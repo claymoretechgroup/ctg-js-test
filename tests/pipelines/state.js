@@ -4,6 +4,7 @@
 // results accumulation, config access, and extensibility.
 
 import CTGTestState from "../../src/CTGTestState.js";
+import CTGTestResult from "../../src/CTGTestResult.js";
 
 // :: OBJECT -> PROMISE(VOID)
 export default async function run({ test, assert }) {
@@ -31,11 +32,11 @@ export default async function run({ test, assert }) {
 
     await test("state: results accumulates entries", () => {
         const state = new CTGTestState({ subject: 1 });
-        state.results.push({ name: "step 1", status: "pass" });
-        state.results.push({ name: "step 2", status: "fail" });
+        state.results.push({ name: "step 1", status: CTGTestResult.STATUS.PASS });
+        state.results.push({ name: "step 2", status: CTGTestResult.STATUS.FAIL });
         assert(state.results.length === 2, "two results");
         assert(state.results[0].name === "step 1", "first result name");
-        assert(state.results[1].status === "fail", "second result status");
+        assert(state.results[1].status === CTGTestResult.STATUS.FAIL, "second result status");
     });
 
     // ── Subject Mutation ────────────────────────────────────────
@@ -67,30 +68,30 @@ export default async function run({ test, assert }) {
 
     await test("state: status aggregates from results", () => {
         const state = new CTGTestState({ subject: 1 });
-        state.results.push({ name: "a", status: "pass" });
-        state.results.push({ name: "b", status: "pass" });
-        assert(state.status === "pass", "all pass = pass");
+        state.results.push({ name: "a", status: CTGTestResult.STATUS.PASS });
+        state.results.push({ name: "b", status: CTGTestResult.STATUS.PASS });
+        assert(state.status === CTGTestResult.STATUS.PASS, "all pass = pass");
     });
 
     await test("state: status is fail when any result fails", () => {
         const state = new CTGTestState({ subject: 1 });
-        state.results.push({ name: "a", status: "pass" });
-        state.results.push({ name: "b", status: "fail" });
-        assert(state.status === "fail", "any fail = fail");
+        state.results.push({ name: "a", status: CTGTestResult.STATUS.PASS });
+        state.results.push({ name: "b", status: CTGTestResult.STATUS.FAIL });
+        assert(state.status === CTGTestResult.STATUS.FAIL, "any fail = fail");
     });
 
     await test("state: status is error when any result errors", () => {
         const state = new CTGTestState({ subject: 1 });
-        state.results.push({ name: "a", status: "pass" });
-        state.results.push({ name: "b", status: "error" });
-        assert(state.status === "error", "any error = error");
+        state.results.push({ name: "a", status: CTGTestResult.STATUS.PASS });
+        state.results.push({ name: "b", status: CTGTestResult.STATUS.ERROR });
+        assert(state.status === CTGTestResult.STATUS.ERROR, "any error = error");
     });
 
     await test("state: error status takes precedence over fail", () => {
         const state = new CTGTestState({ subject: 1 });
-        state.results.push({ name: "a", status: "fail" });
-        state.results.push({ name: "b", status: "error" });
-        assert(state.status === "error", "error > fail");
+        state.results.push({ name: "a", status: CTGTestResult.STATUS.FAIL });
+        state.results.push({ name: "b", status: CTGTestResult.STATUS.ERROR });
+        assert(state.status === CTGTestResult.STATUS.ERROR, "error > fail");
     });
 
     await test("state: name is accessible", () => {

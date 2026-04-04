@@ -116,6 +116,8 @@ export default class CTGTest {
 
         const timeout = resolved.timeout;
 
+        const S = CTGTestResult.STATUS;
+
         // Execute steps sequentially
         for (const step of this._steps) {
             // Skip step sets skipTargets, no result produced on success.
@@ -136,7 +138,7 @@ export default class CTGTest {
                 } catch (err) {
                     const durationMs = Math.round(performance.now() - startTime);
                     state.results.push(
-                        CTGTestResult.stepResult("stage", step.name.trim(), "error",
+                        CTGTestResult.stepResult("stage", step.name.trim(), S.ERROR,
                             durationMs, err.message));
                     if (resolved.haltOnFailure) break;
                 }
@@ -147,7 +149,7 @@ export default class CTGTest {
             const trimmedName = step.name.trim();
             if (state.skipTargets[trimmedName]) {
                 state.results.push(
-                    CTGTestResult.stepResult(step.type, trimmedName, "skip", 0));
+                    CTGTestResult.stepResult(step.type, trimmedName, S.SKIP, 0));
                 continue;
             }
 
@@ -173,7 +175,7 @@ export default class CTGTest {
                 }
             } catch (err) {
                 // Promise rejection or timeout — record as step error
-                state._lastStepStatus = "error";
+                state._lastStepStatus = S.ERROR;
                 state._lastStepMessage = err.message;
             }
 
@@ -185,7 +187,7 @@ export default class CTGTest {
 
             // Halt check
             if (resolved.haltOnFailure
-                && (result.status === "fail" || result.status === "error")) {
+                && (result.status === S.FAIL || result.status === S.ERROR)) {
                 break;
             }
         }
@@ -224,6 +226,7 @@ export default class CTGTest {
     // factories. Dispatches on expectedOutcome (declared by the step) and
     // chain results, not on step type strings.
     _evaluateStep(step, state, durationMs, config) {
+        const S = CTGTestResult.STATUS;
         const name = step.name.trim();
         const outcome = step.expectedOutcome;
 
@@ -238,27 +241,27 @@ export default class CTGTest {
         }
 
         // Error during execution — applies to any step type
-        if (state._lastStepStatus === "error") {
+        if (state._lastStepStatus === S.ERROR) {
             if (outcome && outcome.type === "value") {
                 return CTGTestResult.assertResult(
-                    name, "error", durationMs, state.actual,
+                    name, S.ERROR, durationMs, state.actual,
                     outcome.expected, state._lastStepMessage);
             }
             if (outcome && outcome.type === "candidates") {
                 return CTGTestResult.assertAnyResult(
-                    name, "error", durationMs, state.actual,
+                    name, S.ERROR, durationMs, state.actual,
                     outcome.candidates, state._lastStepMessage);
             }
             return CTGTestResult.stepResult(
-                step.type, name, "error", durationMs, state._lastStepMessage);
+                step.type, name, S.ERROR, durationMs, state._lastStepMessage);
         }
 
         // Recovery — error handler produced a value
-        if (state._lastStepStatus === "recovered") {
+        if (state._lastStepStatus === S.RECOVERED) {
             if (outcome && outcome.type === "value") {
                 const matched = this.compare(state.actual, outcome.expected, config.strict);
                 return CTGTestResult.assertResult(
-                    name, matched ? "recovered" : "fail", durationMs,
+                    name, matched ? S.RECOVERED : S.FAIL, durationMs,
                     state.actual, outcome.expected,
                     matched ? "error handler invoked" : null);
             }
@@ -268,18 +271,18 @@ export default class CTGTest {
                     if (this.compare(state.actual, c, config.strict)) { matched = true; break; }
                 }
                 return CTGTestResult.assertAnyResult(
-                    name, matched ? "recovered" : "fail", durationMs,
+                    name, matched ? S.RECOVERED : S.FAIL, durationMs,
                     state.actual, outcome.candidates);
             }
             return CTGTestResult.stepResult(
-                step.type, name, "recovered", durationMs, "error handler invoked");
+                step.type, name, S.RECOVERED, durationMs, "error handler invoked");
         }
 
         // Comparison — step declared an expected outcome
         if (outcome && outcome.type === "value") {
             const matched = this.compare(state.actual, outcome.expected, config.strict);
             return CTGTestResult.assertResult(
-                name, matched ? "pass" : "fail", durationMs,
+                name, matched ? S.PASS : S.FAIL, durationMs,
                 state.actual, outcome.expected,
                 matched ? null
                     : `expected ${CTGTestResult.formatValue(outcome.expected)} but got ${CTGTestResult.formatValue(state.actual)}`);
@@ -289,19 +292,19 @@ export default class CTGTest {
             const candidates = outcome.candidates;
             if (candidates.length === 0) {
                 return CTGTestResult.assertAnyResult(
-                    name, "fail", durationMs, state.actual, candidates, "empty candidate set");
+                    name, S.FAIL, durationMs, state.actual, candidates, "empty candidate set");
             }
             let matched = false;
             for (const c of candidates) {
                 if (this.compare(state.actual, c, config.strict)) { matched = true; break; }
             }
             return CTGTestResult.assertAnyResult(
-                name, matched ? "pass" : "fail", durationMs, state.actual, candidates);
+                name, matched ? S.PASS : S.FAIL, durationMs, state.actual, candidates);
         }
 
         // No comparison needed — transform step (stage, etc.)
         return CTGTestResult.stepResult(
-            step.type, name, "pass", durationMs);
+            step.type, name, S.PASS, durationMs);
     }
 
     // :: OBJECT -> OBJECT
