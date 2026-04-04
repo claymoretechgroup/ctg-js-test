@@ -25,23 +25,6 @@ export default class CTGTestState {
     // GETTER :: VOID -> INT
     // Aggregate status from results. Error > fail > recovered > skip > pass.
     get status() {
-        const S = CTGTestResult.STATUS;
-        let hasError = false;
-        let hasFail = false;
-        let hasRecovered = false;
-        let hasSkip = false;
-
-        for (const result of this.results) {
-            if (result.status === S.ERROR) hasError = true;
-            else if (result.status === S.FAIL) hasFail = true;
-            else if (result.status === S.RECOVERED) hasRecovered = true;
-            else if (result.status === S.SKIP) hasSkip = true;
-        }
-
-        if (hasError) return S.ERROR;
-        if (hasFail) return S.FAIL;
-        if (hasRecovered) return S.RECOVERED;
-        if (hasSkip) return S.SKIP;
-        return S.PASS;
+        return CTGTestResult.aggregateStatus(this.results);
     }
 }
