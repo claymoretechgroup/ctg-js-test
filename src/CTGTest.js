@@ -240,6 +240,24 @@ export default class CTGTest {
                 null, chainResult.steps, counts);
         }
 
+        // Step-signaled fail — step computed successfully but determined
+        // the outcome is a failure (e.g., missing baseline for snapshots).
+        // Records fail with the step's message, bypassing comparison.
+        if (state._lastStepStatus === S.FAIL) {
+            if (outcome && outcome.type === "value") {
+                return CTGTestResult.assertResult(
+                    name, S.FAIL, durationMs, state.actual,
+                    outcome.expected, state._lastStepMessage);
+            }
+            if (outcome && outcome.type === "candidates") {
+                return CTGTestResult.assertAnyResult(
+                    name, S.FAIL, durationMs, state.actual,
+                    outcome.candidates, state._lastStepMessage);
+            }
+            return CTGTestResult.stepResult(
+                step.type, name, S.FAIL, durationMs, state._lastStepMessage);
+        }
+
         // Error during execution — applies to any step type
         if (state._lastStepStatus === S.ERROR) {
             if (outcome && outcome.type === "value") {

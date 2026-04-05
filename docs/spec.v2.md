@@ -183,14 +183,22 @@ the pipeline decides if the actual matches.
 | `"candidates"` | AssertAnyStep | `{ type: "candidates", candidates: [*] }` |
 | `null` | StageStep, ChainStep, SkipStep | No comparison needed |
 
-The pipeline dispatches evaluation on three conditions — not on step type
+The pipeline dispatches evaluation on these conditions — not on step type
 strings:
 
 1. **Chain result** — `state._chainResult` is set. Pipeline nests results.
-2. **Expected outcome** — `step.expectedOutcome` is not null. Pipeline
+2. **Step-signaled fail** — `state._lastStepStatus` is FAIL. Step computed
+   successfully but determined the outcome is a failure (e.g., missing
+   snapshot baseline). Pipeline records fail with the step's message,
+   bypassing comparison.
+3. **Step-signaled error** — `state._lastStepStatus` is ERROR. Execution
+   failed. Pipeline records error.
+4. **Step-signaled recovery** — `state._lastStepStatus` is RECOVERED.
+   Error handler produced a value. Pipeline compares recovered value.
+5. **Expected outcome** — `step.expectedOutcome` is not null. Pipeline
    compares `state.actual` against the declared expectation.
-3. **Transform** — no expected outcome. Pipeline records pass/error from
-   execution status.
+6. **Transform** — no expected outcome, no signaled status. Pipeline
+   records pass.
 
 The two outcome types — `"value"` and `"candidates"` — are comparison
 modes, not step-type-specific behavior. They represent the only two kinds
