@@ -98,8 +98,8 @@ export default async function run({ test, assert }) {
 
     await test("pipeline: config accessible in state", async () => {
         const state = await CTGTest.init("config access")
-            .assert("check", (state) => state.config.strict, true)
-            .start(null, { strict: true });
+            .assert("check", (state) => state.config.haltOnFailure, true)
+            .start(null, { haltOnFailure: true });
         assert(state.results[0].status === CTGTestResult.STATUS.PASS, "config on state");
     });
 

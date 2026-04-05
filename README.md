@@ -1,24 +1,22 @@
 # ctg-js-test
 
-`ctg-js-test` is a composable, pipeline-based test framework for JavaScript (Node.js, ESM). Tests are defined as pipelines of stage and assert operations on a threaded subject. Stage transforms the subject. Assert inspects without mutating. Chain composes test instances together. All callables are `await`ed, so sync and async code works uniformly without separate APIs.
+`ctg-js-test` is a composable, pipeline-based test framework for JavaScript (Node.js, ESM). Tests are defined as pipelines of stage and assert steps on a threaded subject. Stage transforms the subject. Assert evaluates something about the subject without mutating it. Chain composes test instances together. The pipeline returns a `CTGTestState` to the caller — the caller owns formatting, collection, and delivery.
 
 **Key Features:**
 
 * **Pipeline model**: Tests are ordered sequences of stages and asserts on a threaded subject
+* **Caller-owned reporting**: Pipeline returns state, caller decides how to format and deliver results
 * **Composable**: Chain separately defined test instances into larger pipelines
 * **Async-native**: All callables are `await`ed — no separate async API needed
 * **Five-status reporting**: pass, fail, error, recovered, skip — not just pass/fail
 * **Per-step timeout**: Configurable timeout prevents hung async operations from blocking the pipeline
-* **Zero dependencies**: Only Node.js built-ins (`node:util`, `node:fs`, `node:path`, `node:url`, `node:perf_hooks`)
-* **Portable**: API designed to match `ctg-php-test` and port to additional languages
+* **Zero dependencies**: Only Node.js built-ins (`node:util`, `node:perf_hooks`)
 
 ## Install
 
 ```
 npm install claymoretechgroup/ctg-js-test
 ```
-
-Minimum Node.js version: 14.x (ESM support, `util.isDeepStrictEqual`, `performance.now()`).
 
 ## Examples
 
@@ -29,24 +27,10 @@ Define a test pipeline and run it:
 ```javascript
 import CTGTest from "ctg-js-test";
 
-const test = CTGTest.init("arithmetic")
-    .stage("setup", (n) => n + 1)
-    .assert("incremented", (n) => n, 2);
-
-await test.start(1);
-```
-
-### Multiple Stages
-
-Stages thread the subject sequentially:
-
-```javascript
-const test = CTGTest.init("math")
-    .stage("double", (n) => n * 2)
-    .stage("add ten", (n) => n + 10)
-    .assert("result", (n) => n, 20);
-
-await test.start(5);
+const state = await CTGTest.init("arithmetic")
+    .stage("setup", (state) => { state.subject = state.subject + 1; return state; })
+    .assert("incremented", (state) => state.subject, 2)
+    .start(1);
 ```
 
 ### Composing Pipelines
@@ -55,13 +39,13 @@ Define reusable test components and chain them together:
 
 ```javascript
 const validatePositive = CTGTest.init("positive check")
-    .assert("is positive", (n) => n > 0, true);
+    .assert("is positive", (state) => state.subject > 0, true);
 
 const test = CTGTest.init("math pipeline")
-    .stage("double", (n) => n * 2)
+    .stage("double", (state) => { state.subject = state.subject * 2; return state; })
     .chain("validate", validatePositive);
 
-await test.start(5);
+const state = await test.start(5);
 ```
 
 ### Async Steps
@@ -69,14 +53,14 @@ await test.start(5);
 Test async code naturally — HTTP calls, database queries, file I/O:
 
 ```javascript
-const test = CTGTest.init("api test")
-    .stage("fetch user", async (id) => {
-        const res = await fetch(`https://api.example.com/users/${id}`);
-        return res.json();
+const state = await CTGTest.init("api test")
+    .stage("fetch user", async (state) => {
+        const res = await fetch(`https://api.example.com/users/${state.subject}`);
+        state.subject = await res.json();
+        return state;
     })
-    .assert("has name", (user) => typeof user.name, "string");
-
-await test.start(42);
+    .assert("has name", (state) => typeof state.subject.name, "string")
+    .start(42);
 ```
 
 ### Error Recovery
@@ -84,79 +68,53 @@ await test.start(42);
 Stage and assert steps accept an optional error handler:
 
 ```javascript
-const test = CTGTest.init("resilient")
+const state = await CTGTest.init("resilient")
     .stage("connect",
-        async (config) => await connectDB(config),
+        async (state) => { state.subject = await connectDB(state.subject); return state; },
         async (err) => await connectFallbackDB()
     )
-    .assert("connected", (db) => db.isConnected, true);
-
-await test.start({ host: "primary.db" });
+    .assert("connected", (state) => state.subject.isConnected, true)
+    .start({ host: "primary.db" });
 ```
 
 ### Conditional Skip
 
-Skip steps unconditionally or based on a predicate:
+Skip steps by name, unconditionally or based on a predicate:
 
 ```javascript
-const test = CTGTest.init("conditional")
-    .stage("setup", (x) => x)
-    .stage("expensive", async (x) => await heavyComputation(x))
-    .assert("result", (x) => x > 0, true)
-    .skip("expensive", (x) => x < 10);
-
-await test.start(5); // "expensive" is skipped because 5 < 10
+const state = await CTGTest.init("conditional")
+    .skip("skip expensive", "expensive", (state) => state.subject < 10)
+    .stage("setup", (state) => state)
+    .stage("expensive", async (state) => { state.subject = await heavyComputation(state.subject); return state; })
+    .assert("result", (state) => state.subject > 0, true)
+    .start(5);
 ```
 
-### Strict and Loose Comparison
+### Caller-Owned Reporting
 
-Strict mode (default) uses `util.isDeepStrictEqual`. Loose mode uses `==` semantics with deep object traversal:
-
-```javascript
-// Strict: 1 !== "1"
-await CTGTest.init("strict")
-    .assert("type matters", (x) => x, "1")
-    .start(1); // fails
-
-// Loose: 1 == "1"
-await CTGTest.init("loose")
-    .assert("type coerced", (x) => x, "1")
-    .start(1, { strict: false }); // passes
-```
-
-### Output Modes
-
-Control how results are delivered:
+The pipeline returns `CTGTestState`. The caller formats and delivers results:
 
 ```javascript
-// Console output (default) — human-readable to stdout
-await test.start(subject);
+import CTGTestResult from "ctg-js-test/result";
+import CTGTestConsoleFormatter from "ctg-js-test/formatter/console";
+import CTGTestJsonFormatter from "ctg-js-test/formatter/json";
 
-// Return formatted string
-const output = await test.start(subject, { output: "return" });
+const state = await CTGTest.init("example")
+    .assert("check", (state) => state.subject, 5)
+    .start(5);
 
-// Return raw report object
-const report = await test.start(subject, { output: "return-json" });
+// Human-readable console output
+const text = CTGTestConsoleFormatter.format(state);
+process.stdout.write(text + "\n");
 
-// JSON to stdout
-await test.start(subject, { output: "json" });
+// JSON output
+const json = CTGTestJsonFormatter.format(state);
+process.stdout.write(json + "\n");
 
-// JUnit XML to stdout (for CI)
-await test.start(subject, { output: "junit" });
-```
-
-### Debug Mode
-
-Capture subject snapshots before each step:
-
-```javascript
-const report = await CTGTest.init("debug example")
-    .stage("double", (n) => n * 2)
-    .assert("check", (n) => n, 10)
-    .start(5, { output: "return-json", debug: true });
-
-// report.steps[0].subject === 5  (before doubling)
-// report.steps[1].subject === 10 (before asserting)
+// Exit code from state status
+const S = CTGTestResult.STATUS;
+const failed = state.status === S.FAIL || state.status === S.ERROR;
+process.exit(failed ? 1 : 0);
 ```
 
 ### Timeout
@@ -165,46 +123,29 @@ Per-step timeout prevents hung async operations. Default is 5000ms:
 
 ```javascript
 // Custom timeout
-await test.start(subject, { timeout: 10000 }); // 10 seconds
+const state = await test.start(subject, { timeout: 10000 });
 
 // Disable timeout
-await test.start(subject, { timeout: 0 });
+const state = await test.start(subject, { timeout: 0 });
 ```
-
-### CLI Runner
-
-Run test files from the command line:
-
-```
-npx ctg-test
-npx ctg-test tests/ApiTest.js tests/DbTest.js
-npx ctg-test --format=junit --trace --timeout=10000
-```
-
-Test files are ESM modules that import `CTGTest` and execute on import. The runner discovers `*Test.js` files in the current directory or `tests/` subdirectory.
 
 ## Configuration
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `output` | string | `"console"` | Output mode: console, return, return-json, json, junit |
 | `haltOnFailure` | boolean | `true` | Stop pipeline on first fail or error |
-| `strict` | boolean | `true` | Use strict deep equality (vs loose `==`) |
-| `trace` | boolean | `false` | Include stack traces in error results |
-| `debug` | boolean | `false` | Capture subject snapshots before each step |
-| `formatter` | class\|null | `null` | Custom formatter class with static `format(report, config)` |
 | `timeout` | number | `5000` | Per-step timeout in ms (0 = disabled) |
 
 ## Considerations
 
-### Loose Mode Semantics
+### Skip Ordering
 
-Loose mode (`strict: false`) uses `==` coercion at leaf nodes during deep comparison. This means `1` matches `"1"`, `0` matches `false`, and `null` matches `undefined` at any depth. A future version may introduce an alternative comparison mode (e.g. structural equality using `===` without coercion) as a separate option rather than changing the existing `strict: false` behavior, which is a documented contract.
+Skip steps must currently appear before their target in the pipeline because steps execute sequentially — a skip defined after its target would never fire. However, since all step definitions are known at `start()` time, skip could instead function as a lookup consulted before each step executes, removing the ordering constraint. This would make skip behave more like a config option than a pipeline step, but binding predicates to specific step labels is cleaner as a method call (`.skip(name, target, predicate)`) than as a config map. A future version may revisit whether skip should remain a step type or become a separate mechanism.
 
-### Map and Set Comparison
+### JUnit Formatter
 
-`compare()` currently throws `INVALID_STEP` for Map and Set instances. This is intentional — these types are explicitly uncomparable in the current spec. A future version may add Map/Set deep comparison support behind a versioned behavior change or new config flag. Any such change would need to address: insertion order sensitivity, object keys in Maps, duplicate-equivalent entries in Sets, cycle handling within Map/Set values, and the interaction with `_checkUncomparable` which guards both strict and loose paths.
+A JUnit XML formatter was removed in v2.1.0 because its output could not be validated against the JUnit schema without introducing a dev dependency for XML parsing. The formatter concept is supported — console and JSON formatters ship with the framework — and JUnit may be reintroduced in a future version once proper validation is in place.
 
 ## Notice
 
-`ctg-js-test` is under active development. The core API is stable. Formatters and CLI tooling may change.
+`ctg-js-test` is under active development. The core pipeline API is stable.

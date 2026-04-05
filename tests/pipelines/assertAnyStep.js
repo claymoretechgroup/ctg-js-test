@@ -55,22 +55,6 @@ export default async function run({ test, assert }) {
         assert(state.subject === 5, "subject unchanged");
     });
 
-    // ── Strict vs Loose ─────────────────────────────────────────
-
-    await test("assertAny: respects strict mode", async () => {
-        const state = await CTGTest.init("assertAny strict")
-            .assertAny("check", (state) => state.subject, ["5"])
-            .start(5, { strict: true, haltOnFailure: false });
-        assert(state.results[0].status === CTGTestResult.STATUS.FAIL, "strict rejects type coercion");
-    });
-
-    await test("assertAny: loose mode allows type coercion", async () => {
-        const state = await CTGTest.init("assertAny loose")
-            .assertAny("check", (state) => state.subject, ["5"])
-            .start(5, { strict: false });
-        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "loose accepts coercion");
-    });
-
     // ── Error Handling ──────────────────────────────────────────
 
     await test("assertAny: error in fn produces error result", async () => {

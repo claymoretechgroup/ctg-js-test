@@ -17,14 +17,12 @@ export default class CTGTest {
     /* Static Fields */
 
     static MAX_CHAIN_DEPTH = 64;
-    static MAX_NESTING_DEPTH = 128;
 
-    static VALID_CONFIG_KEYS = ["haltOnFailure", "strict", "timeout"];
-    static BOOLEAN_CONFIG_KEYS = ["haltOnFailure", "strict"];
+    static VALID_CONFIG_KEYS = ["haltOnFailure", "timeout"];
+    static BOOLEAN_CONFIG_KEYS = ["haltOnFailure"];
 
     static DEFAULT_CONFIG = {
         haltOnFailure: true,
-        strict: true,
         timeout: 5000
     };
 
@@ -65,6 +63,9 @@ export default class CTGTest {
     // :: STRING, (ctgTestState -> *), *, (Error -> *)? -> this
     // Adds an assert step. The callback computes an actual value from state.
     // The pipeline compares it to the expected value. Chainable.
+    // NOTE: Handler mutates state as a side effect to store the result of
+    // the handler for the pipeline to compare against in order to support
+    // async operations.
     assert(name, fn, expected, errorHandler = null) {
         this._steps.push(new AssertStep(name, fn, expected, errorHandler));
         return this;
@@ -89,6 +90,8 @@ export default class CTGTest {
     // Adds a skip step targeting another step by name. If the predicate
     // returns true (or is null for unconditional), the target step is
     // skipped. Must appear before the target in the pipeline. Chainable.
+    // NOTE: Skip must appear before its target because steps execute
+    // sequentially — a skip defined after its target would never fire.
     skip(name, targetName, predicate = null) {
         this._steps.push(new SkipStep(name, targetName, predicate));
         return this;
@@ -200,19 +203,19 @@ export default class CTGTest {
         return state;
     }
 
-    // :: *, *, BOOL -> BOOL
-    // Compares actual and expected values. Used by the pipeline after step
-    // execution to judge assert outcomes. Strict mode uses isDeepStrictEqual.
-    // Loose mode uses manual traversal with type coercion.
-    compare(actual, expected, strict) {
-        this._checkUncomparable(actual, "actual");
-        this._checkUncomparable(expected, "expected");
-
-        if (strict) {
-            return isDeepStrictEqual(actual, expected);
+    // :: *, * -> BOOL
+    // Compares actual and expected values using isDeepStrictEqual.
+    // Used by the pipeline after step execution to judge assert outcomes.
+    // Wraps isDeepStrictEqual to provide a single extension point for
+    // comparison behavior.
+    compare(actual, expected) {
+        if (typeof actual === "function") {
+            throw new CTGTestError("INVALID_STEP", `Cannot compare closures (actual)`);
         }
-
-        return this._looseDeepEqual(actual, expected, [], 0);
+        if (typeof expected === "function") {
+            throw new CTGTestError("INVALID_STEP", `Cannot compare closures (expected)`);
+        }
+        return isDeepStrictEqual(actual, expected);
     }
 
     /**
@@ -277,7 +280,7 @@ export default class CTGTest {
         // Recovery — error handler produced a value
         if (state._lastStepStatus === S.RECOVERED) {
             if (outcome && outcome.type === "value") {
-                const matched = this.compare(state.actual, outcome.expected, config.strict);
+                const matched = this.compare(state.actual, outcome.expected);
                 return CTGTestResult.assertResult(
                     name, matched ? S.RECOVERED : S.FAIL, durationMs,
                     state.actual, outcome.expected,
@@ -286,7 +289,7 @@ export default class CTGTest {
             if (outcome && outcome.type === "candidates") {
                 let matched = false;
                 for (const c of outcome.candidates) {
-                    if (this.compare(state.actual, c, config.strict)) { matched = true; break; }
+                    if (this.compare(state.actual, c)) { matched = true; break; }
                 }
                 return CTGTestResult.assertAnyResult(
                     name, matched ? S.RECOVERED : S.FAIL, durationMs,
@@ -298,7 +301,7 @@ export default class CTGTest {
 
         // Comparison — step declared an expected outcome
         if (outcome && outcome.type === "value") {
-            const matched = this.compare(state.actual, outcome.expected, config.strict);
+            const matched = this.compare(state.actual, outcome.expected);
             return CTGTestResult.assertResult(
                 name, matched ? S.PASS : S.FAIL, durationMs,
                 state.actual, outcome.expected,
@@ -314,7 +317,7 @@ export default class CTGTest {
             }
             let matched = false;
             for (const c of candidates) {
-                if (this.compare(state.actual, c, config.strict)) { matched = true; break; }
+                if (this.compare(state.actual, c)) { matched = true; break; }
             }
             return CTGTestResult.assertAnyResult(
                 name, matched ? S.PASS : S.FAIL, durationMs, state.actual, candidates);
@@ -445,126 +448,6 @@ export default class CTGTest {
         if (state.actual != null && typeof state.actual.then === "function") {
             state.actual = await state.actual;
         }
-    }
-
-    // :: *, STRING -> VOID
-    // Throws INVALID_STEP for uncomparable value types (functions, Map, Set).
-    _checkUncomparable(value, label) {
-        if (typeof value === "function") {
-            throw new CTGTestError("INVALID_STEP", `Cannot compare closures (${label})`);
-        }
-        if (value instanceof Map) {
-            throw new CTGTestError("INVALID_STEP", `Cannot compare Map instances (${label})`);
-        }
-        if (value instanceof Set) {
-            throw new CTGTestError("INVALID_STEP", `Cannot compare Set instances (${label})`);
-        }
-    }
-
-    // :: *, *, [ARRAY], INT -> BOOL
-    // Manual deep loose equality with type coercion and cycle detection.
-    _looseDeepEqual(actual, expected, seen, depth) {
-        if (depth > CTGTest.MAX_NESTING_DEPTH) {
-            throw new CTGTestError("INVALID_STEP", "Comparison exceeds max nesting depth");
-        }
-
-        if (typeof actual === "number" && typeof expected === "number") {
-            if (Number.isNaN(actual) && Number.isNaN(expected)) return true;
-        }
-
-        if (actual == null && expected == null) return true;
-        if (actual == null || expected == null) return actual == expected;
-
-        const typeA = typeof actual;
-        const typeB = typeof expected;
-
-        if (this._isPrimitive(typeA) && this._isPrimitive(typeB)) {
-            return actual == expected;
-        }
-
-        const isDate = (v) => v instanceof Date;
-        const isRegExp = (v) => v instanceof RegExp;
-        const isTypedArray = (v) => ArrayBuffer.isView(v) && !(v instanceof DataView);
-        const isDataView = (v) => v instanceof DataView;
-        const isArray = (v) => Array.isArray(v);
-
-        if (isDate(actual) || isDate(expected)) {
-            if (!isDate(actual) || !isDate(expected)) return false;
-            return actual.getTime() === expected.getTime();
-        }
-
-        if (isRegExp(actual) || isRegExp(expected)) {
-            if (!isRegExp(actual) || !isRegExp(expected)) return false;
-            return actual.toString() === expected.toString();
-        }
-
-        if (isTypedArray(actual) || isTypedArray(expected)) {
-            if (!isTypedArray(actual) || !isTypedArray(expected)) return false;
-            if (actual.length !== expected.length) return false;
-            for (let i = 0; i < actual.length; i++) {
-                if (!(actual[i] == expected[i])) return false;
-            }
-            return true;
-        }
-
-        if (isDataView(actual) || isDataView(expected)) {
-            if (!isDataView(actual) || !isDataView(expected)) return false;
-            if (actual.byteLength !== expected.byteLength) return false;
-            for (let i = 0; i < actual.byteLength; i++) {
-                if (actual.getUint8(i) !== expected.getUint8(i)) return false;
-            }
-            return true;
-        }
-
-        if (isArray(actual) || isArray(expected)) {
-            if (!isArray(actual) || !isArray(expected)) return false;
-        }
-
-        if (typeA === "object" && typeB === "object") {
-            for (const pair of seen) {
-                if (pair[0] === actual && pair[1] === expected) {
-                    throw new CTGTestError("INVALID_STEP",
-                        "Cyclic reference detected during loose comparison");
-                }
-            }
-            seen.push([actual, expected]);
-        }
-
-        if (isArray(actual)) {
-            if (actual.length !== expected.length) { seen.pop(); return false; }
-            for (let i = 0; i < actual.length; i++) {
-                if (!this._looseDeepEqual(actual[i], expected[i], seen, depth + 1)) {
-                    seen.pop(); return false;
-                }
-            }
-            seen.pop();
-            return true;
-        }
-
-        if (typeA === "object" && typeB === "object") {
-            const keysA = Object.keys(actual);
-            const keysB = Object.keys(expected);
-            if (keysA.length !== keysB.length) { seen.pop(); return false; }
-            for (const key of keysA) {
-                if (!Object.prototype.hasOwnProperty.call(expected, key)) {
-                    seen.pop(); return false;
-                }
-                if (!this._looseDeepEqual(actual[key], expected[key], seen, depth + 1)) {
-                    seen.pop(); return false;
-                }
-            }
-            seen.pop();
-            return true;
-        }
-
-        return actual == expected;
-    }
-
-    // :: STRING -> BOOL
-    // Checks if a typeof string represents a primitive type.
-    _isPrimitive(type) {
-        return type === "string" || type === "number"
-            || type === "boolean" || type === "bigint";
     }
 
     /**

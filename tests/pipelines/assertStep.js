@@ -76,22 +76,6 @@ export default async function run({ test, assert }) {
         assert(receivedArg instanceof CTGTestState, "arg is CTGTestState");
     });
 
-    // ── Strict vs Loose ─────────────────────────────────────────
-
-    await test("assert: strict mode fails on type mismatch", async () => {
-        const state = await CTGTest.init("strict assert")
-            .assert("check", (state) => state.subject, "5")
-            .start(5, { strict: true, haltOnFailure: false });
-        assert(state.results[0].status === CTGTestResult.STATUS.FAIL, "strict rejects 5 === '5'");
-    });
-
-    await test("assert: loose mode passes on type coercion", async () => {
-        const state = await CTGTest.init("loose assert")
-            .assert("check", (state) => state.subject, "5")
-            .start(5, { strict: false });
-        assert(state.results[0].status === CTGTestResult.STATUS.PASS, "loose accepts 5 == '5'");
-    });
-
     // ── Error Handling ──────────────────────────────────────────
 
     await test("assert: error in fn produces error result", async () => {

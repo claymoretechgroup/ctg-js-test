@@ -8,7 +8,7 @@ import CTGTestState from "../../src/CTGTestState.js";
 import CTGTestResult from "../../src/CTGTestResult.js";
 import CTGTestConsoleFormatter from "../../src/formatters/CTGTestConsoleFormatter.js";
 import CTGTestJsonFormatter from "../../src/formatters/CTGTestJsonFormatter.js";
-import CTGTestJunitFormatter from "../../src/formatters/CTGTestJunitFormatter.js";
+
 
 // :: OBJECT -> PROMISE(VOID)
 export default async function run({ test, assert }) {
@@ -33,16 +33,6 @@ export default async function run({ test, assert }) {
         assert(typeof formatted === "string", "returns string");
         const parsed = JSON.parse(formatted);
         assert(parsed !== null, "valid JSON");
-    });
-
-    await test("runner: junit formatter accepts CTGTestState", async () => {
-        const state = await CTGTest.init("junit test")
-            .assert("check", (state) => state.subject, 5)
-            .start(5);
-        const formatted = CTGTestJunitFormatter.format(state);
-        assert(typeof formatted === "string", "returns string");
-        assert(formatted.includes("<?xml") || formatted.includes("<testsuite"),
-            "XML output");
     });
 
     // ── Exit Code Semantics ─────────────────────────────────────

@@ -1,6 +1,6 @@
 {
     "name": "ctg-js-test",
-    "version": "2.0.1",
+    "version": "2.1.0",
     "description": "Composable, pipeline-based test framework for Node.js with async-native execution and zero dependencies",
     "type": "module",
     "exports": {
@@ -10,8 +10,7 @@
         "./step": "./src/CTGTestStep.js",
         "./state": "./src/CTGTestState.js",
         "./formatter/console": "./src/formatters/CTGTestConsoleFormatter.js",
-        "./formatter/json": "./src/formatters/CTGTestJsonFormatter.js",
-        "./formatter/junit": "./src/formatters/CTGTestJunitFormatter.js"
+        "./formatter/json": "./src/formatters/CTGTestJsonFormatter.js"
     },
     "scripts": {
         "test": "node tests/SelfTest.js"

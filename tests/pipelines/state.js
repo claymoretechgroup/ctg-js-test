@@ -12,11 +12,11 @@ export default async function run({ test, assert }) {
     // ── Construction ────────────────────────────────────────────
 
     await test("state: constructs with subject, results, and config", () => {
-        const state = new CTGTestState({ subject: 5, config: { strict: true } });
+        const state = new CTGTestState({ subject: 5, config: { haltOnFailure: true } });
         assert(state.subject === 5, "subject is set");
         assert(Array.isArray(state.results), "results is an array");
         assert(state.results.length === 0, "results starts empty");
-        assert(state.config.strict === true, "config is accessible");
+        assert(state.config.haltOnFailure === true, "config is accessible");
     });
 
     await test("state: defaults subject to null", () => {
