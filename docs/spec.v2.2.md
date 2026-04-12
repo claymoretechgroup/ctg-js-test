@@ -89,6 +89,9 @@ provided are initialized to empty/unset values:
 // GETTER :: VOID -> STRING
 get label
 
+// :: STRING -> VOID
+set label
+
 // GETTER :: VOID -> *
 get subject
 
@@ -855,6 +858,7 @@ All signatures use HM-like notation per the JS code style guide.
 ```
 // CONSTRUCTOR :: { subject: *, label: STRING }? -> this
 // GETTER :: VOID -> STRING                      label
+// SETTER :: STRING -> VOID                      label
 // GETTER :: VOID -> *                           subject
 // SETTER :: * -> VOID                           subject
 // GETTER :: VOID -> *                           computed
