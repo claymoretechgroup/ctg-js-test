@@ -1,6 +1,6 @@
 # ctg-js-test v2.2 — Language-Specific Specification
 
-**Realizes:** `test-design-doc.v2.md` (language-agnostic design document)
+**Realizes:** `test-design-doc.v2.2.md` (language-agnostic design document)
 **Supersedes:** `spec.v2.md`
 **Target:** JavaScript (ES modules, Node.js)
 **Code Style:** `ctg-project-proc/code-styles/js-code-style.md`
@@ -388,8 +388,8 @@ static isTrue()
 // Value === false.
 static isFalse()
 
-// :: STRING -> ctgTestPredicate
-// Value is an instance of the named constructor.
+// :: (* -> *) -> ctgTestPredicate
+// Value is an instance of the given constructor function.
 static isInstanceOf(constructor)
 
 // :: STRING -> ctgTestPredicate
@@ -615,7 +615,8 @@ Executes the pipeline:
 3. **Validate pipeline** — walk the operation list, validate all
    operations. Throw appropriate canonical errors.
 4. **Normalize input** — if `subject` is a `CTGTestState` (or
-   subclass), use directly; otherwise wrap in
+   subclass), use it directly and overwrite `state.label` with
+   `this.label`; otherwise wrap in
    `CTGTestState.init(this.label, subject)`.
 5. **Build skip map** — collect all skip directives into a lookup map
    keyed by target label.
@@ -642,12 +643,14 @@ After each operation executes, the pipeline evaluates the outcome:
    `state.computed`. Call `predicate.evaluate(state.computed)`.
    `true` → `STATUS.PASS`, `false` → `STATUS.FAIL`. If the handler
    or the predicate threw, record `STATUS.ERROR`.
-3. **Chain** — sub-pipeline ran. Its results are appended to the
-   outer state's results with the chain label prepended to each
-   result's label array. `state.subject` is updated to the
-   sub-pipeline's final subject. A chain that executes normally
-   does not produce its own result entry. A chain that is skipped
-   receives a `skippedResult`.
+3. **Chain** — the sub-pipeline's operations run against the same
+   state object. The chain's label is added to the label prefix, so
+   all results produced by the sub-pipeline's operations have the
+   chain label prepended to their label arrays. The sub-pipeline
+   does not call `start()` — the internal executor runs the
+   sub-pipeline's operations directly against the shared state.
+   A chain that executes normally does not produce its own result
+   entry. A chain that is skipped receives a `skippedResult`.
 
 #### Config
 
@@ -858,7 +861,7 @@ All signatures use HM-like notation per the JS code style guide.
 // SETTER :: * -> VOID                           computed
 // GETTER :: VOID -> [CTGTestResult]             results
 // :: CTGTestResult -> VOID                      addResult(result)
-// GETTER :: VOID -> STRING                      status
+// GETTER :: VOID -> INT                          status
 // Static Factory Method :: STRING, * -> ctgTestState   init(label, subject)
 ```
 
@@ -1074,12 +1077,15 @@ mechanism uses `Promise.race` with `setTimeout`:
 3. The timer is cleared after the operation completes (or after
    timeout fires).
 
-**Timeout rollback scope:**
+**Slot rollback scope — timeout only:**
 
-The framework guarantees `state.subject` and `state.computed` are
-unchanged from before a timed-out operation ran. The pipeline
-snapshots these two slots before execution and restores them on
-timeout.
+The pipeline snapshots `state.subject` and `state.computed` before
+each operation executes. If the operation exceeds its timeout, the
+slots are restored to their pre-operation values. This rollback
+applies **only on timeout**, not on regular handler errors. When a
+handler throws normally, the slot deposit hasn't happened yet (the
+framework writes to the slot *after* the handler returns), so no
+rollback is needed.
 
 This guarantee does NOT extend to:
 - Extension-defined state fields (fields added by CTGTestState
@@ -1087,6 +1093,9 @@ This guarantee does NOT extend to:
 - External side effects (network calls, file writes, etc.)
 - Mutations to mutable objects the handler may have performed before
   timeout fired
+
+Extensions that need rollback protection for their own state fields
+must implement their own mechanism.
 
 **Timeout value of 0:** Disables timeout enforcement entirely.
 
@@ -1336,79 +1345,103 @@ Their effect is visible on the target operation's result
 
 ## Appendix A: Execution Algorithm (Pseudocode)
 
+`start()` is the public entry point. It normalizes input, validates,
+and delegates to `executePipeline()` — the internal executor that
+chain also calls.
+
 ```
 async function START(subject, config):
     config = resolveConfig(config)        // merge defaults, validate
-    validatePipeline(this)                // validate all operations
+    validatePipeline(this, depth=0)       // validate all operations recursively
 
-    state = CTGTestState.init(this.label, subject)
+    // Normalize input
+    if subject is CTGTestState (or subclass):
+        state = subject
+        state.label = this.label          // pipeline owns the label
+    else:
+        state = CTGTestState.init(this.label, subject)
 
-    // Build skip lookup map
+    await executePipeline(this, state, config, labelPrefix=[])
+    return state
+```
+
+```
+async function executePipeline(pipeline, state, config, labelPrefix):
+    // Build skip lookup map for this pipeline's operations
     skipMap = {}
-    for each operation in this._operations:
+    for each operation in pipeline._operations:
         if operation is a skip directive:
             skipMap[operation.targetLabel] = operation.condition
 
     // Execute non-skip operations in order
-    for each operation in this._operations:
+    for each operation in pipeline._operations:
         if operation is a skip directive:
             continue
 
         state.computed = undefined        // reset computed slot
+        fullLabel = [...labelPrefix, operation.label]
 
         // Check skip map
         if operation.label is in skipMap:
             condition = skipMap[operation.label]
             try:
                 if condition is null or (await condition(state)) is true:
-                    state.addResult(skippedResult([operation.label]))
+                    state.addResult(skippedResult(fullLabel))
                     continue
                 // condition returned false — operation runs normally
             catch (err):
-                record ERROR result for operation
-                if haltOnFailure: break
+                state.addResult(errorResult(fullLabel, err))
+                if haltOnFailure: return
                 continue
 
         // snapshot framework-owned slots for timeout rollback
         snapshot = [state.subject, state.computed]
 
-        try:
+        // Wrap execution in Promise.race for timeout enforcement
+        try with timeout:
             if operation is stage:
                 value = await operation.fn(state)
                 state.subject = value
-                state.addResult(stageResult([...labelPrefix, operation.label], STATUS.PASS))
+                state.addResult(stageResult(fullLabel, STATUS.PASS))
 
             else if operation is assert:
                 value = await operation.fn(state)
                 state.computed = value
                 passed = operation.predicate.evaluate(state.computed)
                 state.addResult(assertResult(
-                    [...labelPrefix, operation.label],
+                    fullLabel,
                     passed ? STATUS.PASS : STATUS.FAIL,
                     state.computed,
                     operation.predicate.expectedOutcome
                 ))
 
             else if operation is chain:
-                innerState = await operation.pipeline.start(state.subject, config)
-                state.subject = innerState.subject
-                for each result in innerState.results:
-                    result.label = [operation.label, ...result.label]
-                    state.addResult(result)
+                // Same state, extended label prefix — no start() call
+                newPrefix = [...labelPrefix, operation.label]
+                await executePipeline(operation.pipeline, state, config, newPrefix)
+
+        catch timeout:
+            // Timeout — restore slots, record error
+            restore state.subject, state.computed from snapshot
+            state.addResult(errorResult(fullLabel, timeoutError))
 
         catch (err):
-            restore state.subject, state.computed from snapshot
-            state.addResult(errorResult(..., err))
-
-        // timeout handling via Promise.race wraps the try block above
+            // Handler threw — slots were not deposited, no restore needed
+            state.addResult(errorResult(fullLabel, err))
 
         // halt check
         lastResult = last element of state.results
         if haltOnFailure AND (lastResult.status is STATUS.FAIL or STATUS.ERROR):
-            break
-
-    return state
+            return
 ```
+
+> **Note:** `start()` is the public entry point; `executePipeline()`
+> is the internal executor. Chain calls `executePipeline()` directly
+> with the same state and an extended label prefix — it never calls
+> `start()` on the sub-pipeline. This is how same-state chaining
+> works: the sub-pipeline's operations mutate the same state object,
+> and the label prefix accumulates as chains nest. This matches the
+> PHP implementation.
 
 > **Note on skip evaluation timing:** Skip conditions are evaluated
 > when the target operation is reached during execution, not when
@@ -1419,6 +1452,12 @@ async function START(subject, config):
 > the framework records an ERROR result with the **target's** label
 > and the caught exception. The target does not execute. The result
 > trace has exactly one entry for the target.
+
+> **Note on slot rollback:** Slot restore (`state.subject`,
+> `state.computed`) happens only on timeout, not on regular handler
+> errors. When a handler throws, the slot deposit hasn't happened yet
+> — the framework writes to slots *after* the handler returns — so
+> no restore is needed. This follows the PHP implementation.
 
 ---
 
