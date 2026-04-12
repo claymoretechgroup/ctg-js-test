@@ -417,7 +417,19 @@ static matchesPattern(pattern)
 
 // :: INT -> ctgTestPredicate
 // Array or iterable has the expected length.
+// Checks .length (arrays, strings), then .size (Map, Set), then
+// counts via Symbol.iterator with early exit when count > expected.
 static hasLength(expected)
+
+> **Judgment Call — hasLength iterates custom iterables:** For values
+> without `.length` or `.size`, `hasLength` counts elements via
+> `Symbol.iterator` with a short-circuit when `count > expected`. This
+> means an unbounded iterable can still run for a long time if
+> `expected` is large. This is accepted risk: the alternative (refusing
+> to count iterables) defeats the purpose of iterable support, and the
+> pipeline's per-operation timeout is the backstop for genuinely slow
+> evaluations. Users with very large or unbounded iterables should use
+> `satisfies` with a custom counting strategy instead.
 
 // :: [*] -> ctgTestPredicate
 // Computed value deep-equals any candidate.
