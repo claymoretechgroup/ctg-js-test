@@ -619,12 +619,12 @@ describe("pipeline skip", () => {
             // Both pipelines have a step called "check", but they're separate.
             // Outer skip targets outer "check", inner "check" runs unaffected.
             const inner = CTGTest.init("inner")
-                .assert("check", (s) => s.subject, equals(10));
+                .assert("check", (s) => s.subject, CTGTestPredicates.equals(10));
 
             const state = await CTGTest.init("outer")
                 .stage("setup", () => 10)
                 .skip("check", () => true)
-                .assert("check", (s) => s.subject, equals(10))
+                .assert("check", (s) => s.subject, CTGTestPredicates.equals(10))
                 .chain("sub", inner)
                 .start(5, { haltOnFailure: false });
 

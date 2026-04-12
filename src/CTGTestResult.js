@@ -1,31 +1,38 @@
-// Static result factory methods, aggregation utilities, and value formatting
+// Result value object and static utilities for status aggregation and formatting.
+// Results are constructed via factory methods only — the constructor is not public API.
 export default class CTGTestResult {
 
     /* Static Fields */
 
     static STATUS = Object.freeze({
-        PASS:      0,
-        FAIL:      1,
-        ERROR:     2,
-        RECOVERED: 3,
-        SKIP:      4
+        PASS:  0,
+        FAIL:  1,
+        ERROR: 2
     });
 
     static STATUS_LABELS = Object.freeze({
         0: "pass",
         1: "fail",
-        2: "error",
-        3: "recovered",
-        4: "skip"
+        2: "error"
     });
 
     static SEVERITY = Object.freeze({
-        [CTGTestResult.STATUS.ERROR]:     5,
-        [CTGTestResult.STATUS.FAIL]:      4,
-        [CTGTestResult.STATUS.RECOVERED]: 3,
-        [CTGTestResult.STATUS.PASS]:      2,
-        [CTGTestResult.STATUS.SKIP]:      1
+        2: 3,  // ERROR — worst
+        1: 2,  // FAIL
+        0: 1   // PASS
     });
+
+    // CONSTRUCTOR :: [STRING], BOOL, INT?, *, *, Error? -> this
+    // Private — use factory methods. Fields are public and read-only (frozen).
+    constructor(label, skipped, status, computedValue, expectedOutcome, error) {
+        this.label = label;
+        this.skipped = skipped;
+        this.status = status;
+        this.computedValue = computedValue;
+        this.expectedOutcome = expectedOutcome;
+        this.error = error;
+        Object.freeze(this);
+    }
 
     /**
      *
@@ -33,54 +40,43 @@ export default class CTGTestResult {
      *
      */
 
-    // :: STRING, STRING, STRING, INT, STRING?, OBJECT? -> OBJECT
-    // Creates a stage-type result structure.
-    static stepResult(type, name, status, durationMs, message = null, exception = null) {
-        return { type, name, status, durationMs: durationMs, message, exception };
+    // Static Factory Method :: [STRING], INT, Error? -> ctgTestResult
+    // Creates a stage result (PASS or ERROR). computedValue and expectedOutcome are undefined.
+    static stageResult(label, status, error) {
+        return new CTGTestResult(
+            label,
+            false,
+            status,
+            undefined,
+            undefined,
+            error !== undefined ? error : undefined
+        );
     }
 
-    // :: STRING, STRING, INT, *, *, STRING?, OBJECT? -> OBJECT
-    // Creates an assert result with actual and expected fields.
-    static assertResult(name, status, durationMs, actual, expected, message = null, exception = null) {
-        return { type: "assert", name, status, durationMs: durationMs, actual, expected, message, exception };
+    // Static Factory Method :: [STRING], INT, *, *, Error? -> ctgTestResult
+    // Creates an assert result (PASS, FAIL, or ERROR).
+    static assertResult(label, status, computedValue, expectedOutcome, error) {
+        return new CTGTestResult(
+            label,
+            false,
+            status,
+            computedValue,
+            expectedOutcome,
+            error !== undefined ? error : undefined
+        );
     }
 
-    // :: STRING, STRING, INT, *, [*], STRING?, OBJECT? -> OBJECT
-    // Creates an assert-any result with actual and candidates fields.
-    static assertAnyResult(name, status, durationMs, actual, candidates, message = null, exception = null) {
-        return { type: "assert-any", name, status, durationMs: durationMs, actual, candidates, message, exception };
-    }
-
-    // :: STRING, STRING, INT, STRING?, OBJECT?, [OBJECT], OBJECT -> OBJECT
-    // Creates a chain result with nested step results and aggregate counts.
-    static chainResult(name, status, durationMs, message, exception, steps, counts) {
-        return {
-            type: "chain", name, status, durationMs: durationMs, message, exception, steps,
-            passed: counts.passed, failed: counts.failed, skipped: counts.skipped,
-            recovered: counts.recovered, errored: counts.errored, total: counts.total
-        };
-    }
-
-    // :: INT, INT, INT -> STRING|VOID
-    // Generates canonical chain message from child counts.
-    // NOTE: Returns null if no failures or errors.
-    static chainMessage(failed, errored, total) {
-        if (failed === 0 && errored === 0) return null;
-        return `${failed} failed, ${errored} errored in ${total} steps`;
-    }
-
-    // :: STRING, [OBJECT] -> OBJECT
-    // Assembles root report. Calls countSteps, aggregateStatus, sumDuration internally.
-    static report(name, steps) {
-        const counts = CTGTestResult.countSteps(steps);
-        const status = CTGTestResult.aggregateStatus(steps);
-        const durationMs = CTGTestResult.sumDuration(steps);
-        return {
-            name, status,
-            passed: counts.passed, failed: counts.failed, skipped: counts.skipped,
-            recovered: counts.recovered, errored: counts.errored, total: counts.total,
-            durationMs: durationMs, steps
-        };
+    // Static Factory Method :: [STRING] -> ctgTestResult
+    // Creates a skipped result. All evaluation fields are undefined.
+    static skippedResult(label) {
+        return new CTGTestResult(
+            label,
+            true,
+            undefined,
+            undefined,
+            undefined,
+            undefined
+        );
     }
 
     // :: INT -> STRING
@@ -89,50 +85,64 @@ export default class CTGTestResult {
         return CTGTestResult.STATUS_LABELS[code];
     }
 
-    // :: [OBJECT] -> INT
-    // Derives worst status from child steps using severity ordering.
-    // NOTE: Empty list returns STATUS.PASS.
-    static aggregateStatus(steps) {
+    // :: [ctgTestResult] -> INT
+    // Derives worst status from results using severity ordering.
+    // NOTE: Empty list returns STATUS.PASS. Skipped results are ignored.
+    static aggregateStatus(results) {
         const S = CTGTestResult.STATUS;
-        if (steps.length === 0) return S.PASS;
+        if (results.length === 0) return S.PASS;
         let maxSeverity = 0;
         let maxStatus = S.PASS;
-        for (const step of steps) {
-            const sev = CTGTestResult.SEVERITY[step.status] || 0;
+        for (const result of results) {
+            if (result.skipped) continue;
+            const status = typeof result === "object" && result !== null && "status" in result
+                ? result.status
+                : result;
+            const sev = CTGTestResult.SEVERITY[status] || 0;
             if (sev > maxSeverity) {
                 maxSeverity = sev;
-                maxStatus = step.status;
+                maxStatus = status;
             }
         }
         return maxStatus;
     }
 
-    // :: [OBJECT] -> OBJECT
-    // Counts steps by status at current level only (no recursion into chains).
-    static countSteps(steps) {
+    // :: [ctgTestResult] -> { passed: INT, failed: INT, errored: INT, skipped: INT, total: INT }
+    // Counts results by category.
+    static countResults(results) {
         const S = CTGTestResult.STATUS;
-        const counts = { passed: 0, failed: 0, skipped: 0, recovered: 0, errored: 0, total: 0 };
-        for (const step of steps) {
+        const counts = { passed: 0, failed: 0, errored: 0, skipped: 0, total: 0 };
+        for (const result of results) {
             counts.total++;
-            switch (step.status) {
-                case S.PASS:      counts.passed++;    break;
-                case S.FAIL:      counts.failed++;    break;
-                case S.SKIP:      counts.skipped++;   break;
-                case S.RECOVERED: counts.recovered++; break;
-                case S.ERROR:     counts.errored++;   break;
+            if (result.skipped) {
+                counts.skipped++;
+            } else {
+                switch (result.status) {
+                    case S.PASS:  counts.passed++;  break;
+                    case S.FAIL:  counts.failed++;  break;
+                    case S.ERROR: counts.errored++; break;
+                }
             }
         }
         return counts;
     }
 
-    // :: [OBJECT] -> INT
-    // Sums durationMs across steps at current level.
-    static sumDuration(steps) {
+    // :: [ctgTestResult] -> INT
+    // Sums durationMs across results at current level.
+    static sumDuration(results) {
         let total = 0;
-        for (const step of steps) {
-            total += step.durationMs || 0;
+        for (const result of results) {
+            total += result.durationMs || 0;
         }
         return total;
+    }
+
+    // :: STRING, [ctgTestResult] -> OBJECT
+    // Assembles root report. Calls countResults, aggregateStatus internally.
+    static report(name, results) {
+        const counts = CTGTestResult.countResults(results);
+        const status = CTGTestResult.aggregateStatus(results);
+        return { name, status, ...counts, results };
     }
 
     // :: Error, BOOL, OBJECT? -> OBJECT

@@ -4,13 +4,14 @@ export default class CTGTestError extends Error {
     /* Static Fields */
 
     static ERROR_TYPES = {
-        INVALID_STEP:     1000,
-        INVALID_CHAIN:    1001,
-        INVALID_CONFIG:   1002,
-        INVALID_EXPECTED: 1003,
-        INVALID_SKIP:     1004,
-        FORMATTER_ERROR:  2000,
-        RUNNER_ERROR:     2001
+        INVALID_OPERATION:        1000,
+        INVALID_CHAIN:            1001,
+        INVALID_CONFIG:           1002,
+        INVALID_EXPECTED_OUTCOME: 1003,
+        INVALID_SKIP:             1004,
+        FORMATTER_ERROR:          2000,
+        RUNNER_ERROR:             2001,
+        CHAIN_DEPTH_EXCEEDED:     1100
     };
 
     // CONSTRUCTOR :: STRING|INT, STRING?, * -> this
@@ -23,7 +24,7 @@ export default class CTGTestError extends Error {
         this._type = resolved.type;
         this._code = resolved.code;
         this._msg = message;
-        this._data = data !== undefined ? data : null;
+        this._data = data !== undefined ? data : undefined;
         this.name = "CTGTestError";
     }
 

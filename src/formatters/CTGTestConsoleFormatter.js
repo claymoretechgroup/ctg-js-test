@@ -1,6 +1,6 @@
-import CTGTestResult from "../CTGTestResult.js"; // Status labels
+import CTGTestResult from "../CTGTestResult.js"; // Status labels and utilities
 
-// Human-readable console output formatter with indented tree structure.
+// Human-readable console output formatter.
 // Accepts CTGTestState and produces formatted text.
 export default class CTGTestConsoleFormatter {
 
@@ -10,55 +10,69 @@ export default class CTGTestConsoleFormatter {
      *
      */
 
-    // :: CTGTestState, OBJECT? -> STRING
-    // Formats state as human-readable text with dot-padded status alignment.
+    // :: CTGTestState -> STRING
+    // Formats state as human-readable text per spec.v2.2 format rules.
     // NOTE: No trailing newline — caller appends it.
-    static format(state, config = {}) {
-        const lines = [];
-        lines.push(state.name);
-        CTGTestConsoleFormatter._formatSteps(state.results, lines, 1);
-        lines.push("");
-        const counts = CTGTestResult.countSteps(state.results);
-        const summary = [
-            `${counts.passed} passed`,
-            `${counts.failed} failed`,
-            `${counts.skipped} skipped`,
-            `${counts.recovered} recovered`,
-            `${counts.errored} errored`
-        ].join(", ");
-        const totalMs = state.results.reduce((sum, r) => sum + (r.durationMs || 0), 0);
-        lines.push(`${summary} (${totalMs}ms)`);
-        return lines.join("\n");
-    }
-
-    // :: [OBJECT], [STRING], INT -> VOID
-    // Recursively formats step results into output lines with indentation.
-    static _formatSteps(results, lines, depth) {
+    static format(state) {
         const S = CTGTestResult.STATUS;
-        const indent = "  ".repeat(depth);
-        const lineWidth = 72;
+        const lines = [];
 
-        for (const step of results) {
-            const tag = `[${step.type}]`;
-            const ms = step.durationMs !== undefined ? `${step.durationMs}ms` : "0ms";
-            const label = `${tag} ${step.name} (${ms})`;
-            const statusLabel = CTGTestResult.statusLabel(step.status).toUpperCase();
-            const padded = indent + label;
-            const dotsNeeded = lineWidth - padded.length - statusLabel.length - 1;
-            const dots = dotsNeeded > 0 ? " " + ".".repeat(dotsNeeded) : "";
-            lines.push(`${padded}${dots} ${statusLabel}`);
+        // 1. Pipeline label header
+        lines.push(`Pipeline: ${state.label}`);
 
-            if (step.status === S.FAIL && step.message) {
-                lines.push(`${indent}    ${step.message}`);
+        // 2. Blank line
+        lines.push("");
+
+        // 3. One line per result
+        for (const result of state.results) {
+            let tag;
+            if (result.skipped) {
+                tag = "[SKIPPED]";
+            } else {
+                switch (result.status) {
+                    case S.PASS:  tag = "[PASS]";  break;
+                    case S.FAIL:  tag = "[FAIL]";  break;
+                    case S.ERROR: tag = "[ERROR]"; break;
+                    default:      tag = "[?]";     break;
+                }
             }
 
-            if (step.status === S.ERROR && step.message) {
-                lines.push(`${indent}    ${step.message}`);
+            // Pad tag to 10 chars
+            const paddedTag = tag.padEnd(10);
+
+            // Join label array with " > "
+            const labelStr = result.label.join(" > ");
+
+            lines.push(`  ${paddedTag}${labelStr}`);
+
+            // 4. FAIL detail lines
+            if (!result.skipped && result.status === S.FAIL) {
+                lines.push(`              computed: ${CTGTestResult.formatValue(result.computedValue)}`);
+                lines.push(`              expected: ${CTGTestResult.formatValue(result.expectedOutcome)}`);
             }
 
-            if (step.type === "chain" && step.steps) {
-                CTGTestConsoleFormatter._formatSteps(step.steps, lines, depth + 1);
+            // 5. ERROR detail line
+            if (!result.skipped && result.status === S.ERROR && result.error) {
+                const className = result.error.constructor ? result.error.constructor.name : "Error";
+                lines.push(`              error: ${className}: ${result.error.message}`);
             }
+
+            // 6. SKIPPED — no detail lines
         }
+
+        // 7. Blank line + separator
+        lines.push("");
+        lines.push("---");
+
+        // 8. Summary line
+        const counts = CTGTestResult.countResults(state.results);
+        lines.push(`${counts.passed} passed, ${counts.failed} failed, ${counts.skipped} skipped, ${counts.errored} errored (${counts.total} total)`);
+
+        // 9. Result line
+        const worstStatus = CTGTestResult.aggregateStatus(state.results);
+        const worstLabel = CTGTestResult.statusLabel(worstStatus) || "PASS";
+        lines.push(`Result: ${worstLabel.toUpperCase()}`);
+
+        return lines.join("\n");
     }
 }

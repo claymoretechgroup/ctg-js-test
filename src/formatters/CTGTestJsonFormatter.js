@@ -1,4 +1,5 @@
-// JSON formatter with BigInt replacer for safe serialization
+// JSON formatter with BigInt replacer for safe serialization.
+// Accepts CTGTestState and produces pretty-printed JSON string.
 export default class CTGTestJsonFormatter {
 
     /**
@@ -16,10 +17,10 @@ export default class CTGTestJsonFormatter {
         return value;
     }
 
-    // :: CTGTestState, OBJECT? -> STRING
+    // :: CTGTestState -> STRING
     // Pretty-printed JSON serialization of the state.
     // NOTE: No trailing newline — caller appends it.
-    static format(state, config = {}) {
+    static format(state) {
         return JSON.stringify(state, CTGTestJsonFormatter.bigIntReplacer, 2);
     }
 }
