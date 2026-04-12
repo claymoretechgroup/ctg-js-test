@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import CTGTestJsonFormatter from "../src/formatters/CTGTestJsonFormatter.js";
 import CTGTestState from "../src/CTGTestState.js";
 import CTGTestResult from "../src/CTGTestResult.js";
+import CTGTestError from "../src/CTGTestError.js";
 
 // Tests derived from spec.v2.2.md section 2.7 — CTGTestJsonFormatter
 // realizes: Format Semantics > The Formatter Contract
@@ -184,6 +185,39 @@ describe("CTGTestJsonFormatter", () => {
             const output = CTGTestJsonFormatter.format(state);
             const parsed = JSON.parse(output);
             expect(parsed.results).toEqual([]);
+        });
+    });
+
+    // ── Formatter failure wrapping ────────────────────────────────────
+
+    describe("formatter failure produces FORMATTER_ERROR", () => {
+
+        it("wraps circular reference error as FORMATTER_ERROR", () => {
+            const circular = {};
+            circular.self = circular;
+            const state = CTGTestState.init("circular", null);
+            state.subject = circular;
+            try {
+                CTGTestJsonFormatter.format(state);
+                expect.unreachable("should have thrown");
+            } catch (err) {
+                expect(err).toBeInstanceOf(CTGTestError);
+                expect(err.type).toBe("FORMATTER_ERROR");
+                expect(err.code).toBe(2000);
+            }
+        });
+
+        it("preserves original error message in FORMATTER_ERROR", () => {
+            const circular = {};
+            circular.self = circular;
+            const state = CTGTestState.init("circular", null);
+            state.subject = circular;
+            try {
+                CTGTestJsonFormatter.format(state);
+                expect.unreachable("should have thrown");
+            } catch (err) {
+                expect(err.msg).toContain("circular");
+            }
         });
     });
 });

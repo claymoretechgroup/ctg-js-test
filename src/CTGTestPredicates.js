@@ -131,19 +131,33 @@ export default class CTGTestPredicates {
 
     // :: RegExp -> ctgTestPredicate
     // Value matches the given regex.
+    // NOTE: Resets lastIndex before each test to avoid stateful regex bugs
+    // with g/y flags that would cause alternating true/false on repeated calls.
     static matchesPattern(pattern) {
         return CTGTestPredicate.init(
             pattern,
-            (value) => pattern.test(value)
+            (value) => { pattern.lastIndex = 0; return pattern.test(value); }
         );
     }
 
     // :: INT -> ctgTestPredicate
-    // Array or iterable has the expected length.
+    // Array, string, or iterable has the expected length/size.
+    // Checks .length first (arrays, strings), then .size (Map, Set),
+    // then counts via iteration for custom iterables.
     static hasLength(expected) {
         return CTGTestPredicate.init(
             expected,
-            (value) => value != null && value.length === expected
+            (value) => {
+                if (value == null) return false;
+                if (typeof value.length === "number") return value.length === expected;
+                if (typeof value.size === "number") return value.size === expected;
+                if (typeof value[Symbol.iterator] === "function") {
+                    let count = 0;
+                    for (const _ of value) count++;
+                    return count === expected;
+                }
+                return false;
+            }
         );
     }
 

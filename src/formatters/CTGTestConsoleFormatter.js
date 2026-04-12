@@ -1,4 +1,5 @@
 import CTGTestResult from "../CTGTestResult.js"; // Status labels and utilities
+import CTGTestError from "../CTGTestError.js"; // Framework errors
 
 // Human-readable console output formatter.
 // Accepts CTGTestState and produces formatted text.
@@ -13,7 +14,19 @@ export default class CTGTestConsoleFormatter {
     // :: CTGTestState -> STRING
     // Formats state as human-readable text per spec.v2.2 format rules.
     // NOTE: No trailing newline — caller appends it.
+    // NOTE: Wraps native errors as FORMATTER_ERROR (2000).
     static format(state) {
+        try {
+            return CTGTestConsoleFormatter._formatInternal(state);
+        } catch (err) {
+            if (err instanceof CTGTestError) throw err;
+            throw new CTGTestError("FORMATTER_ERROR", err.message, { cause: err });
+        }
+    }
+
+    // :: CTGTestState -> STRING
+    // Internal formatting logic.
+    static _formatInternal(state) {
         const S = CTGTestResult.STATUS;
         const lines = [];
 

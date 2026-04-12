@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import CTGTestConsoleFormatter from "../src/formatters/CTGTestConsoleFormatter.js";
 import CTGTestState from "../src/CTGTestState.js";
 import CTGTestResult from "../src/CTGTestResult.js";
+import CTGTestError from "../src/CTGTestError.js";
 
 // Tests derived from spec.v2.2.md section 2.7 — CTGTestConsoleFormatter
 // realizes: Format Semantics > The Formatter Contract
@@ -347,6 +348,40 @@ describe("CTGTestConsoleFormatter", () => {
 
             // No trailing newline
             expect(lines.length).toBe(15);
+        });
+    });
+
+    // ── Formatter failure wrapping ────────────────────────────────────
+
+    describe("formatter failure produces FORMATTER_ERROR", () => {
+
+        it("wraps native error as FORMATTER_ERROR on malformed state", () => {
+            // A state with a result whose label getter throws
+            const badState = {
+                get label() { throw new Error("broken label"); },
+                results: []
+            };
+            try {
+                CTGTestConsoleFormatter.format(badState);
+                expect.unreachable("should have thrown");
+            } catch (err) {
+                expect(err).toBeInstanceOf(CTGTestError);
+                expect(err.type).toBe("FORMATTER_ERROR");
+                expect(err.code).toBe(2000);
+            }
+        });
+
+        it("preserves original error message in FORMATTER_ERROR", () => {
+            const badState = {
+                get label() { throw new Error("state is broken"); },
+                results: []
+            };
+            try {
+                CTGTestConsoleFormatter.format(badState);
+                expect.unreachable("should have thrown");
+            } catch (err) {
+                expect(err.msg).toBe("state is broken");
+            }
         });
     });
 });

@@ -745,4 +745,62 @@ describe("CTGTestPredicates", () => {
             expect(pred.evaluate(null)).toBe(false);
         });
     });
+
+    // ── matchesPattern with stateful regex ────────────────────────────
+
+    describe("matchesPattern with global/sticky flags", () => {
+
+        it("repeated evaluations with /g flag return consistent results", () => {
+            const pred = CTGTestPredicates.matchesPattern(/abc/g);
+            expect(pred.evaluate("abc")).toBe(true);
+            expect(pred.evaluate("abc")).toBe(true);
+            expect(pred.evaluate("abc")).toBe(true);
+        });
+
+        it("repeated evaluations with /y flag return consistent results", () => {
+            const pred = CTGTestPredicates.matchesPattern(/abc/y);
+            expect(pred.evaluate("abc")).toBe(true);
+            expect(pred.evaluate("abc")).toBe(true);
+        });
+
+        it("/gi flag does not cause alternating results", () => {
+            const pred = CTGTestPredicates.matchesPattern(/test/gi);
+            for (let i = 0; i < 10; i++) {
+                expect(pred.evaluate("TEST")).toBe(true);
+            }
+        });
+    });
+
+    // ── hasLength on iterables ────────────────────────────────────────
+
+    describe("hasLength on iterables", () => {
+
+        it("evaluates Set size", () => {
+            const pred = CTGTestPredicates.hasLength(3);
+            expect(pred.evaluate(new Set([1, 2, 3]))).toBe(true);
+            expect(pred.evaluate(new Set([1, 2]))).toBe(false);
+        });
+
+        it("evaluates Map size", () => {
+            const pred = CTGTestPredicates.hasLength(2);
+            expect(pred.evaluate(new Map([["a", 1], ["b", 2]]))).toBe(true);
+            expect(pred.evaluate(new Map([["a", 1]]))).toBe(false);
+        });
+
+        it("evaluates custom iterator", () => {
+            const pred = CTGTestPredicates.hasLength(3);
+            const iterable = {
+                [Symbol.iterator]() {
+                    let i = 0;
+                    return { next() { return i++ < 3 ? { value: i, done: false } : { done: true }; } };
+                }
+            };
+            expect(pred.evaluate(iterable)).toBe(true);
+        });
+
+        it("empty Set has length 0", () => {
+            const pred = CTGTestPredicates.hasLength(0);
+            expect(pred.evaluate(new Set())).toBe(true);
+        });
+    });
 });

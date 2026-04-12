@@ -1,3 +1,5 @@
+import CTGTestError from "../CTGTestError.js"; // Framework errors
+
 // JSON formatter with BigInt replacer for safe serialization.
 // Accepts CTGTestState and produces pretty-printed JSON string.
 export default class CTGTestJsonFormatter {
@@ -20,7 +22,13 @@ export default class CTGTestJsonFormatter {
     // :: CTGTestState -> STRING
     // Pretty-printed JSON serialization of the state.
     // NOTE: No trailing newline — caller appends it.
+    // NOTE: Wraps native errors as FORMATTER_ERROR (2000).
     static format(state) {
-        return JSON.stringify(state, CTGTestJsonFormatter.bigIntReplacer, 2);
+        try {
+            return JSON.stringify(state, CTGTestJsonFormatter.bigIntReplacer, 2);
+        } catch (err) {
+            if (err instanceof CTGTestError) throw err;
+            throw new CTGTestError("FORMATTER_ERROR", err.message, { cause: err });
+        }
     }
 }
