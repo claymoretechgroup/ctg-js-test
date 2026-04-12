@@ -518,7 +518,60 @@ describe("pipeline skip", () => {
         });
     });
 
-    // ── 11. Pipeline-Local Skip Scope ─────────────────────────────────
+    // ── 11. Async Skip Conditions ───────────────────────────────────
+
+    describe("async skip conditions", () => {
+
+        it("async condition returning true skips target", async () => {
+            const state = await CTGTest.init("async skip true")
+                .skip("target", async () => true)
+                .stage("target", (s) => s.subject * 100)
+                .start(5);
+
+            expect(state.subject).toBe(5);
+            expect(state.results).toHaveLength(1);
+            expect(state.results[0].skipped).toBe(true);
+        });
+
+        it("async condition returning false runs target", async () => {
+            const state = await CTGTest.init("async skip false")
+                .skip("target", async () => false)
+                .stage("target", (s) => s.subject * 100)
+                .start(5);
+
+            expect(state.subject).toBe(500);
+            expect(state.results).toHaveLength(1);
+            expect(state.results[0].skipped).toBe(false);
+            expect(state.results[0].status).toBe(STATUS.PASS);
+        });
+
+        it("async condition that rejects produces ERROR for target", async () => {
+            const state = await CTGTest.init("async skip reject")
+                .skip("target", async () => { throw new Error("async condition failed"); })
+                .stage("target", (s) => s.subject)
+                .start(1, { haltOnFailure: false });
+
+            expect(state.results).toHaveLength(1);
+            expect(state.results[0].status).toBe(STATUS.ERROR);
+            expect(state.results[0].label).toEqual(["target"]);
+            expect(state.results[0].error.message).toBe("async condition failed");
+        });
+
+        it("async condition with delayed resolution skips correctly", async () => {
+            const state = await CTGTest.init("async delayed skip")
+                .skip("target", async () => {
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                    return true;
+                })
+                .stage("target", (s) => s.subject * 2)
+                .start(7);
+
+            expect(state.subject).toBe(7);
+            expect(state.results[0].skipped).toBe(true);
+        });
+    });
+
+    // ── 12. Pipeline-Local Skip Scope ─────────────────────────────────
 
     describe("skip scope is pipeline-local", () => {
 

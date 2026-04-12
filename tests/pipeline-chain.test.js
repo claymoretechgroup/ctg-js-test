@@ -120,6 +120,30 @@ describe("chain same-state semantics", () => {
         expect(state.results[1].status).toBe(STATUS.PASS);
     });
 
+    it("outer and inner handlers receive the same state object identity", async () => {
+        let outerState = null;
+        let innerState = null;
+
+        const inner = CTGTest.init("inner")
+            .stage("capture inner", (state) => {
+                innerState = state;
+                return state.subject;
+            });
+
+        const state = await CTGTest.init("identity check")
+            .stage("capture outer", (state) => {
+                outerState = state;
+                return state.subject;
+            })
+            .chain("sub", inner)
+            .start(1);
+
+        // Both handlers received the exact same object
+        expect(outerState).toBe(innerState);
+        // And it's the same object returned by start()
+        expect(state).toBe(outerState);
+    });
+
     it("nested chain mutations propagate outward", async () => {
         const deep = CTGTest.init("deep")
             .stage("set-deep", () => "deep-value");
