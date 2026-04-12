@@ -1,39 +1,80 @@
 # CTGTestError
 
-Typed error class extending `Error` with bidirectional name/code lookup. All framework errors use this class with a specific error type.
+Typed error class extending `Error` with bidirectional name/code lookup for test framework errors.
 
 ### Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
-| _type | STRING | Resolved error type name (e.g., `"INVALID_STEP"`) |
-| _code | INT | Resolved numeric error code (e.g., `1000`) |
+| _type | STRING | Resolved error type name (e.g. `"INVALID_OPERATION"`) |
+| _code | INT | Resolved numeric error code |
 | _msg | STRING | Error message (defaults to type name if not provided) |
-| _data | * | Arbitrary context data or `null` |
+| _data | * | Optional structured data attached to the error |
 | name | STRING | Always `"CTGTestError"` (for native Error compatibility) |
-| message | STRING | Same as `_msg` (for native Error compatibility) |
 
 ### Error Codes
 
 | Code | Type | Description |
 |------|------|-------------|
-| 1000 | INVALID_STEP | Step defined with non-callable fn, empty name, duplicate name, or non-state return from stage |
-| 1001 | INVALID_CHAIN | Chain target is not a CTGTest instance, or chain depth exceeds 64 |
-| 1002 | INVALID_CONFIG | Unknown config key, wrong type for boolean/timeout |
-| 1003 | INVALID_EXPECTED | Assert expected is a function, or assertAny expected is not an array |
-| 1004 | INVALID_SKIP | Skip target doesn't exist, duplicate skip, predicate is not a function, or skip appears after target |
-| 2000 | FORMATTER_ERROR | Reserved — not thrown by the v2 pipeline (formatters are caller utilities) |
-| 2001 | RUNNER_ERROR | Reserved — not thrown by the v2 pipeline (bin runner removed) |
+| 1000 | INVALID_OPERATION | Invalid step definition or pipeline operation |
+| 1001 | INVALID_CHAIN | Second argument to chain is not a CTGTest instance |
+| 1002 | INVALID_CONFIG | Unrecognized or invalid configuration key |
+| 1003 | INVALID_EXPECTED_OUTCOME | Expected outcome is not a valid value for comparison |
+| 1004 | INVALID_SKIP | Invalid skip target or predicate |
+| 1100 | CHAIN_DEPTH_EXCEEDED | Chain nesting exceeds maximum allowed depth |
+| 2000 | FORMATTER_ERROR | Formatter encountered an error during output |
+| 2001 | RUNNER_ERROR | Runner encountered an error during execution |
 
 ---
 
 ### CONSTRUCTOR :: STRING|INT, STRING?, * -> ctgTestError
 
-Creates a typed error from a type name or numeric code. Resolves both directions via the `ERROR_TYPES` map. If `msg` is not provided, defaults to the type name. Unknown types or codes throw a native `TypeError`.
+Creates a typed error from a type name or numeric code. Resolves both directions via the `ERROR_TYPES` map. If `msg` is not provided, defaults to the type name. Throws a native `TypeError` for unknown types or codes.
 
 ```javascript
-throw new CTGTestError("INVALID_STEP", "Step name must not be empty");
+throw new CTGTestError("INVALID_CHAIN", "expected CTGTest instance");
 throw new CTGTestError(1002, "Unknown config key: bogus", { key: "bogus" });
+```
+
+---
+
+### ctgTestError.type :: VOID -> STRING
+
+Returns the error type name.
+
+```javascript
+err.type; // "INVALID_CHAIN"
+```
+
+---
+
+### ctgTestError.code :: VOID -> INT
+
+Returns the numeric error code.
+
+```javascript
+err.code; // 1001
+```
+
+---
+
+### ctgTestError.msg :: VOID -> STRING
+
+Returns the human-readable error message.
+
+```javascript
+err.msg; // "expected CTGTest instance"
+```
+
+---
+
+### ctgTestError.data :: VOID -> *
+
+Returns the optional structured data attached to the error.
+
+```javascript
+const err = new CTGTestError("FORMATTER_ERROR", "serialization failed", { cause: originalError });
+err.data; // { cause: originalError }
 ```
 
 ---
@@ -43,6 +84,6 @@ throw new CTGTestError(1002, "Unknown config key: bogus", { key: "bogus" });
 Bidirectional lookup. String input returns the numeric code. Integer input returns the type name. Throws `TypeError` for unknown values.
 
 ```javascript
-CTGTestError.lookup("INVALID_STEP"); // 1000
-CTGTestError.lookup(1000);           // "INVALID_STEP"
+CTGTestError.lookup("INVALID_CHAIN");  // 1001
+CTGTestError.lookup(1001);             // "INVALID_CHAIN"
 ```

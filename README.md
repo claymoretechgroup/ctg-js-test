@@ -1,16 +1,16 @@
 # ctg-js-test
 
-`ctg-js-test` is a composable, pipeline-based test framework for JavaScript (Node.js, ESM). Tests are defined as pipelines of stage and assert steps on a threaded subject. Stage transforms the subject. Assert evaluates something about the subject without mutating it. Chain composes test instances together. The pipeline returns a `CTGTestState` to the caller — the caller owns formatting, collection, and delivery.
+`ctg-js-test` is a composable, pipeline-based test framework for JavaScript (Node.js, ESM). Tests are defined as pipelines of stage and assert operations on a threaded subject. Stage transforms the subject. Assert computes a value and evaluates it against a predicate. Chain composes pipelines together. The framework separates test definition from execution — the pipeline returns a `CTGTestState` to the caller, and the caller owns formatting, collection, and delivery.
 
 **Key Features:**
 
 * **Pipeline model**: Tests are ordered sequences of stages and asserts on a threaded subject
-* **Caller-owned reporting**: Pipeline returns state, caller decides how to format and deliver results
-* **Composable**: Chain separately defined test instances into larger pipelines
-* **Async-native**: All callables are `await`ed — no separate async API needed
-* **Five-status reporting**: pass, fail, error, recovered, skip — not just pass/fail
-* **Per-step timeout**: Configurable timeout prevents hung async operations from blocking the pipeline
-* **Zero dependencies**: Only Node.js built-ins (`node:util`, `node:perf_hooks`)
+* **Predicate-based assertions**: Comparison logic lives in predicates, not the pipeline — extensible without modifying the core
+* **Composable**: Chain separately defined pipelines into larger test sequences sharing the same state
+* **Caller-owned reporting**: Pipeline returns state; caller decides how to format and deliver results
+* **Async-native**: All handlers are `await`ed — sync and async handlers work transparently
+* **Per-operation timeout**: Configurable timeout prevents hung async operations from blocking the pipeline
+* **Zero dependencies**: Only Node.js built-ins (`node:util`)
 
 ## Install
 
@@ -26,69 +26,82 @@ Define a test pipeline and run it:
 
 ```javascript
 import CTGTest from "ctg-js-test";
+import CTGTestPredicates from "ctg-js-test/predicates";
 
 const state = await CTGTest.init("arithmetic")
-    .stage("setup", (state) => { state.subject = state.subject + 1; return state; })
-    .assert("incremented", (state) => state.subject, 2)
+    .stage("add one", (state) => state.subject + 1)
+    .assert("is two", (state) => state.subject, CTGTestPredicates.equals(2))
     .start(1);
+```
+
+### Predicates
+
+Predicates define how assert operations evaluate correctness. The framework ships 17 convenience builders:
+
+```javascript
+import CTGTestPredicates from "ctg-js-test/predicates";
+
+// Deep equality
+CTGTestPredicates.equals({ name: "Alice" })
+
+// Void check (null or undefined)
+CTGTestPredicates.isVoid()
+
+// Type check
+CTGTestPredicates.isType("string")
+
+// Any of several values
+CTGTestPredicates.anyOf([200, 201, 204])
+
+// Custom logic
+CTGTestPredicates.satisfies((v) => v > 0 && v < 100)
 ```
 
 ### Composing Pipelines
 
-Define reusable test components and chain them together:
+Define reusable pipelines and chain them together:
 
 ```javascript
 const validatePositive = CTGTest.init("positive check")
-    .assert("is positive", (state) => state.subject > 0, true);
+    .assert("is positive", (state) => state.subject, CTGTestPredicates.greaterThan(0));
 
 const test = CTGTest.init("math pipeline")
-    .stage("double", (state) => { state.subject = state.subject * 2; return state; })
+    .stage("double", (state) => state.subject * 2)
     .chain("validate", validatePositive);
 
 const state = await test.start(5);
 ```
 
-### Async Steps
+Chain runs the sub-pipeline's operations against the same state object. Subject changes inside a chain are visible to the outer pipeline.
 
-Test async code naturally — HTTP calls, database queries, file I/O:
+### Async Operations
+
+Test async code naturally:
 
 ```javascript
 const state = await CTGTest.init("api test")
     .stage("fetch user", async (state) => {
         const res = await fetch(`https://api.example.com/users/${state.subject}`);
-        state.subject = await res.json();
-        return state;
+        return await res.json();
     })
-    .assert("has name", (state) => typeof state.subject.name, "string")
+    .assert("has name", (state) => typeof state.subject.name, CTGTestPredicates.equals("string"))
     .start(42);
-```
-
-### Error Recovery
-
-Stage and assert steps accept an optional error handler:
-
-```javascript
-const state = await CTGTest.init("resilient")
-    .stage("connect",
-        async (state) => { state.subject = await connectDB(state.subject); return state; },
-        async (err) => await connectFallbackDB()
-    )
-    .assert("connected", (state) => state.subject.isConnected, true)
-    .start({ host: "primary.db" });
 ```
 
 ### Conditional Skip
 
-Skip steps by name, unconditionally or based on a predicate:
+Skip operations by target label, unconditionally or with a condition:
 
 ```javascript
 const state = await CTGTest.init("conditional")
-    .skip("skip expensive", "expensive", (state) => state.subject < 10)
-    .stage("setup", (state) => state)
-    .stage("expensive", async (state) => { state.subject = await heavyComputation(state.subject); return state; })
-    .assert("result", (state) => state.subject > 0, true)
+    .stage("setup", (state) => state.subject)
+    .skip("expensive", (state) => state.subject < 10)
+    .stage("expensive", async (state) => await heavyComputation(state.subject))
+    .assert("result", (state) => state.subject, CTGTestPredicates.greaterThan(0))
     .start(5);
 ```
+
+Skip directives can appear at any position in the builder sequence. The condition is evaluated when the target operation is reached during execution.
 
 ### Caller-Owned Reporting
 
@@ -97,36 +110,34 @@ The pipeline returns `CTGTestState`. The caller formats and delivers results:
 ```javascript
 import CTGTestResult from "ctg-js-test/result";
 import CTGTestConsoleFormatter from "ctg-js-test/formatter/console";
-import CTGTestJsonFormatter from "ctg-js-test/formatter/json";
 
 const state = await CTGTest.init("example")
-    .assert("check", (state) => state.subject, 5)
+    .assert("check", (state) => state.subject, CTGTestPredicates.equals(5))
     .start(5);
 
-// Human-readable console output
-const text = CTGTestConsoleFormatter.format(state);
-process.stdout.write(text + "\n");
+// Format and print
+process.stdout.write(CTGTestConsoleFormatter.format(state) + "\n");
 
-// JSON output
-const json = CTGTestJsonFormatter.format(state);
-process.stdout.write(json + "\n");
-
-// Exit code from state status
+// Exit code from status
 const S = CTGTestResult.STATUS;
-const failed = state.status === S.FAIL || state.status === S.ERROR;
-process.exit(failed ? 1 : 0);
+process.exit(state.status === S.FAIL || state.status === S.ERROR ? 1 : 0);
 ```
 
-### Timeout
+### Custom Predicates
 
-Per-step timeout prevents hung async operations. Default is 5000ms:
+Build domain-specific predicates using `CTGTestPredicate.init`:
 
 ```javascript
-// Custom timeout
-const state = await test.start(subject, { timeout: 10000 });
+import CTGTestPredicate from "ctg-js-test/predicate";
 
-// Disable timeout
-const state = await test.start(subject, { timeout: 0 });
+const isValidEmail = CTGTestPredicate.init(
+    "valid email",
+    (value) => typeof value === "string" && /^[^@]+@[^@]+\.[^@]+$/.test(value)
+);
+
+const state = await CTGTest.init("user validation")
+    .assert("email format", (state) => state.subject.email, isValidEmail)
+    .start({ email: "user@example.com" });
 ```
 
 ## Configuration
@@ -134,18 +145,16 @@ const state = await test.start(subject, { timeout: 0 });
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `haltOnFailure` | boolean | `true` | Stop pipeline on first fail or error |
-| `timeout` | number | `5000` | Per-step timeout in ms (0 = disabled) |
+| `timeout` | number | `5000` | Per-operation timeout in ms (0 = disabled) |
 
-## Considerations
+```javascript
+// Run all operations regardless of failures
+const state = await test.start(subject, { haltOnFailure: false });
 
-### Skip Ordering
-
-Skip steps must currently appear before their target in the pipeline because steps execute sequentially — a skip defined after its target would never fire. However, since all step definitions are known at `start()` time, skip could instead function as a lookup consulted before each step executes, removing the ordering constraint. This would make skip behave more like a config option than a pipeline step, but binding predicates to specific step labels is cleaner as a method call (`.skip(name, target, predicate)`) than as a config map. A future version may revisit whether skip should remain a step type or become a separate mechanism.
-
-### JUnit Formatter
-
-A JUnit XML formatter was removed in v2.1.0 because its output could not be validated against the JUnit schema without introducing a dev dependency for XML parsing. The formatter concept is supported — console and JSON formatters ship with the framework — and JUnit may be reintroduced in a future version once proper validation is in place.
+// Custom timeout
+const state = await test.start(subject, { timeout: 10000 });
+```
 
 ## Notice
 
-`ctg-js-test` is under active development. The core pipeline API is stable.
+`ctg-js-test` is under active development. The core pipeline API is stable but formatters and extension patterns may evolve.

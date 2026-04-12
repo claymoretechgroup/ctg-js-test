@@ -5,7 +5,7 @@ Formatter utilities that accept CTGTestState and return a formatted string. Form
 ```javascript
 import CTGTestConsoleFormatter from "ctg-js-test/formatters/CTGTestConsoleFormatter.js";
 
-const state = await pipeline.start(subject, config);
+const state = await pipeline.start(subject);
 const formatted = CTGTestConsoleFormatter.format(state);
 process.stdout.write(formatted + "\n");
 ```
@@ -14,66 +14,52 @@ process.stdout.write(formatted + "\n");
 
 ## CTGTestConsoleFormatter
 
-Human-readable output with indented tree structure and dot-padded status alignment.
+Human-readable console output formatter. Accepts a CTGTestState and produces formatted text for terminal display. All methods are static — this class is not instantiated.
 
-### CTGTestConsoleFormatter.format :: CTGTestState, OBJECT? -> STRING
+### CTGTestConsoleFormatter.format :: CTGTestState -> STRING
 
-Formats state as human-readable text. Step types are shown in brackets, durations in parentheses, statuses right-aligned. Chain children are indented. Summary line shows counts and total duration.
+Formats state as human-readable text. Output includes a pipeline header, one line per result with status tags (`[PASS]`, `[FAIL]`, `[ERROR]`, `[SKIPPED]`), detail lines for failures and errors, and a summary with counts and overall result. Wraps native errors as `FORMATTER_ERROR` (2000).
 
-```
-My Test
-  [stage]  double (2ms) ......................... PASS
-  [assert] check value (1ms) .................... FAIL
-    expected 10 but got 8
+```javascript
+const state = await CTGTest.init("my test")
+    .assert("check", (state) => state.subject, 42)
+    .start(42);
 
-1 passed, 1 failed, 0 skipped, 0 recovered, 0 errored (3ms)
+console.log(CTGTestConsoleFormatter.format(state));
+// Pipeline: my test
+//
+//   [PASS]    my test > check
+//
+// ---
+// 1 passed, 0 failed, 0 skipped, 0 errored (1 total)
+// Result: PASS
 ```
 
 ---
 
 ## CTGTestJsonFormatter
 
-Pretty-printed JSON serialization with BigInt handling.
+JSON formatter with BigInt-safe serialization. Accepts a CTGTestState and produces pretty-printed JSON. All methods are static — this class is not instantiated.
 
-### CTGTestJsonFormatter.format :: CTGTestState, OBJECT? -> STRING
+### CTGTestJsonFormatter.format :: CTGTestState -> STRING
 
-Serializes the state to JSON with 2-space indentation. BigInt values are converted to strings with `"n"` suffix via a static replacer.
+Pretty-printed JSON serialization of the state. Delegates to `JSON.stringify` with a BigInt replacer and 2-space indentation. Wraps native errors as `FORMATTER_ERROR` (2000).
+
+```javascript
+const state = await CTGTest.init("my test")
+    .assert("check", (state) => state.subject, 42)
+    .start(42);
+
+console.log(CTGTestJsonFormatter.format(state));
+```
+
+---
 
 ### CTGTestJsonFormatter.bigIntReplacer :: STRING, * -> *
 
-JSON replacer function that converts BigInt values to `"Nn"` strings. Available as a static utility for other formatters that need JSON serialization.
-
----
-
-## CTGTestJunitFormatter
-
-JUnit XML output for CI integration.
-
-### CTGTestJunitFormatter.format :: CTGTestState, OBJECT? -> STRING
-
-Produces JUnit XML. State results map to `<testsuite>`. Steps map to `<testcase>`. Chains map to nested `<testsuite>`. Status mapping:
-
-| Status | JUnit Element |
-|--------|---------------|
-| pass | bare `<testcase>` |
-| fail | `<testcase>` with `<failure>` child |
-| error | `<testcase>` with `<error>` child |
-| skip | `<testcase>` with `<skipped/>` child |
-| recovered | `<testcase>` with `<system-out>` child |
-
----
-
-## Custom Formatters
-
-Any class with a static `format(state, config?)` method can be used as a formatter. The caller chooses the formatter — the pipeline does not reference formatters.
+JSON replacer function that converts BigInt values to strings with an `"n"` suffix. Used internally by `format` and available for external use.
 
 ```javascript
-class MyFormatter {
-    static format(state, config = {}) {
-        return `${state.name}: ${state.status}`;
-    }
-}
-
-const state = await test.start(subject);
-const output = MyFormatter.format(state);
+JSON.stringify({ count: 9007199254740993n }, CTGTestJsonFormatter.bigIntReplacer);
+// '{"count":"9007199254740993n"}'
 ```

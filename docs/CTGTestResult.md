@@ -1,94 +1,137 @@
 # CTGTestResult
 
-Static utility class for creating result structures, aggregating statuses, and formatting values. No constructor or instance state — all methods are static. Used by the pipeline's `_evaluateStep` method to construct canonical result objects.
+Frozen value object representing a single step outcome, plus static utilities for status aggregation, counting, and formatting. Results are constructed via factory methods only — the constructor is not public API.
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| label | [STRING] | Label path from pipeline root to this step |
+| skipped | BOOL | Whether this step was skipped |
+| status | INT? | Status code (0 = PASS, 1 = FAIL, 2 = ERROR), undefined if skipped |
+| computedValue | * | Actual value produced by an assert step |
+| expectedOutcome | * | Expected value for an assert step |
+| error | Error? | Exception captured during step execution |
 
 ### Static Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
-| STATUS_PASS | STRING | `"pass"` |
-| STATUS_FAIL | STRING | `"fail"` |
-| STATUS_ERROR | STRING | `"error"` |
-| STATUS_RECOVERED | STRING | `"recovered"` |
-| STATUS_SKIP | STRING | `"skip"` |
-| SEVERITY | OBJECT | Severity ordering: error(5) > fail(4) > recovered(3) > pass(2) > skip(1) |
+| STATUS | OBJECT | Frozen enum: `{ PASS: 0, FAIL: 1, ERROR: 2 }` |
+| STATUS_LABELS | OBJECT | Frozen reverse map: `{ 0: "pass", 1: "fail", 2: "error" }` |
+| SEVERITY | OBJECT | Frozen severity ordering: `{ 2: 3, 1: 2, 0: 1 }` |
 
 ---
 
-### CTGTestResult.stepResult :: STRING, STRING, STRING, INT, STRING?, OBJECT? -> OBJECT
+### CTGTestResult.stageResult :: [STRING], INT, Error? -> ctgTestResult
 
-Creates a stage-type result. Returns `{ type, name, status, durationMs, message, exception }`.
-
----
-
-### CTGTestResult.assertResult :: STRING, STRING, INT, *, *, STRING?, OBJECT? -> OBJECT
-
-Creates an assert result with `actual` and `expected` fields.
-
----
-
-### CTGTestResult.assertAnyResult :: STRING, STRING, INT, *, [*], STRING?, OBJECT? -> OBJECT
-
-Creates an assert-any result with `actual` and `candidates` fields.
-
----
-
-### CTGTestResult.chainResult :: STRING, STRING, INT, STRING?, OBJECT?, [OBJECT], OBJECT -> OBJECT
-
-Creates a chain result with nested step results and aggregate counts (`passed`, `failed`, `skipped`, `recovered`, `errored`, `total`).
-
----
-
-### CTGTestResult.report :: STRING, [OBJECT] -> OBJECT
-
-Assembles a root report from step results. Calls `countSteps`, `aggregateStatus`, and `sumDuration` internally. The root report has no `type` field.
+Creates a stage result (PASS or ERROR). `computedValue` and `expectedOutcome` are undefined.
 
 ```javascript
-const report = CTGTestResult.report("my test", stepResults);
-// { name, status, passed, failed, skipped, recovered, errored, total, durationMs, steps }
+const result = CTGTestResult.stageResult(["pipeline", "setup"], CTGTestResult.STATUS.PASS);
 ```
 
 ---
 
-### CTGTestResult.aggregateStatus :: [OBJECT] -> STRING
+### CTGTestResult.assertResult :: [STRING], INT, *, *, Error? -> ctgTestResult
 
-Derives the worst status from child steps using severity ordering. Empty list returns `"pass"`.
+Creates an assert result (PASS, FAIL, or ERROR).
+
+```javascript
+const result = CTGTestResult.assertResult(
+    ["pipeline", "check value"], CTGTestResult.STATUS.FAIL, 41, 42
+);
+```
 
 ---
 
-### CTGTestResult.countSteps :: [OBJECT] -> OBJECT
+### CTGTestResult.skippedResult :: [STRING] -> ctgTestResult
 
-Counts steps by status at the current level only (no recursion into chains). Returns `{ passed, failed, skipped, recovered, errored, total }`.
+Creates a skipped result. All evaluation fields are undefined.
+
+```javascript
+const result = CTGTestResult.skippedResult(["pipeline", "optional step"]);
+```
 
 ---
 
-### CTGTestResult.sumDuration :: [OBJECT] -> INT
+### CTGTestResult.statusLabel :: INT -> STRING
 
-Sums `durationMs` across steps at the current level.
+Resolves a status code to its human-readable label.
+
+```javascript
+CTGTestResult.statusLabel(0); // "pass"
+CTGTestResult.statusLabel(2); // "error"
+```
+
+---
+
+### CTGTestResult.aggregateStatus :: [ctgTestResult] -> INT
+
+Derives the worst status from a results array using severity ordering. Skipped results are ignored. An empty list returns `STATUS.PASS`.
+
+```javascript
+const worst = CTGTestResult.aggregateStatus(state.results); // 0, 1, or 2
+```
+
+---
+
+### CTGTestResult.countResults :: [ctgTestResult] -> { passed: INT, failed: INT, errored: INT, skipped: INT, total: INT }
+
+Counts results by category.
+
+```javascript
+const counts = CTGTestResult.countResults(state.results);
+console.log(counts.passed, counts.total);
+```
+
+---
+
+### CTGTestResult.sumDuration :: [ctgTestResult] -> INT
+
+Sums `durationMs` across results at the current level.
+
+```javascript
+const totalMs = CTGTestResult.sumDuration(state.results);
+```
+
+---
+
+### CTGTestResult.report :: STRING, [ctgTestResult] -> OBJECT
+
+Assembles a root report object containing name, status, counts, and results. Calls `countResults` and `aggregateStatus` internally.
+
+```javascript
+const report = CTGTestResult.report("my test", state.results);
+// { name, status, passed, failed, errored, skipped, total, results }
+```
 
 ---
 
 ### CTGTestResult.formatException :: Error, BOOL, OBJECT? -> OBJECT
 
-Serializes an exception to a structured map. Returns `{ class, message, code, trace?, data?, caused_by? }`. The `code` field is `null` when absent (not `0`). The `data` field is included when the exception has a non-null `data` property (e.g., CTGTestError timeout payloads).
+Serializes an exception to a structured map. Returns `{ class, message, code, trace?, data?, caused_by? }`. The `code` field is `null` when absent. The `data` field is included when the exception has a non-null `data` property. The `causedBy` argument is a pre-formatted exception map, not a raw Error.
 
 ```javascript
-const exc = CTGTestResult.formatException(new RangeError("boom"), true);
-// { class: "RangeError", message: "boom", code: null, trace: "..." }
+try {
+    throw new Error("boom");
+} catch (err) {
+    const formatted = CTGTestResult.formatException(err, true);
+    // { class: "Error", message: "boom", code: null, trace: "..." }
+}
 ```
 
 ---
 
 ### CTGTestResult.formatValue :: * -> STRING
 
-Serializes any value to a human-readable string for display in error messages and formatter output.
+Serializes any value to a human-readable string for display in test output.
 
 | Value | Output |
 |-------|--------|
 | `null` / `undefined` | `"null"` |
 | `true` / `false` | `"true"` / `"false"` |
 | `42` | `"42"` |
-| `3.14` | `"3.14"` |
 | `NaN` | `"NaN"` |
 | `Infinity` | `"Infinity"` |
 | `42n` (BigInt) | `"42n"` |
