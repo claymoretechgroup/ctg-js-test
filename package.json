@@ -13,6 +13,9 @@
         "./formatter/json": "./src/formatters/CTGTestJsonFormatter.js"
     },
     "scripts": {
-        "test": "node tests/SelfTest.js"
+        "test": "vitest run"
+    },
+    "devDependencies": {
+        "vitest": "^4.1.4"
     }
 }
