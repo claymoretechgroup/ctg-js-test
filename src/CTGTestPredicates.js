@@ -153,7 +153,10 @@ export default class CTGTestPredicates {
                 if (typeof value.size === "number") return value.size === expected;
                 if (typeof value[Symbol.iterator] === "function") {
                     let count = 0;
-                    for (const _ of value) count++;
+                    for (const _ of value) {
+                        count++;
+                        if (count > expected) return false;
+                    }
                     return count === expected;
                 }
                 return false;
