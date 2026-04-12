@@ -7,8 +7,9 @@
         ".": "./src/CTGTest.js",
         "./error": "./src/CTGTestError.js",
         "./result": "./src/CTGTestResult.js",
-        "./step": "./src/CTGTestStep.js",
         "./state": "./src/CTGTestState.js",
+        "./predicate": "./src/CTGTestPredicate.js",
+        "./predicates": "./src/CTGTestPredicates.js",
         "./formatter/console": "./src/formatters/CTGTestConsoleFormatter.js",
         "./formatter/json": "./src/formatters/CTGTestJsonFormatter.js"
     },
