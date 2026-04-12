@@ -377,4 +377,69 @@ describe("CTGTest timeout enforcement", () => {
             expect(state.subject).toBe(21);
         });
     });
+
+    // ── 9. Timeout Inside Chained Sub-Pipelines ───────────────────────
+
+    describe("timeout inside chained sub-pipelines", () => {
+
+        it("per-operation timeout applies to operations inside a chain", async () => {
+            const inner = CTGTest.init("inner")
+                .stage("slow inner", async () => { await delay(OVER_TIMEOUT); return 999; });
+
+            const state = await CTGTest.init("outer")
+                .stage("setup", () => 1)
+                .chain("sub", inner)
+                .start(0, { timeout: SHORT_TIMEOUT, haltOnFailure: false });
+
+            // setup passes, slow inner times out
+            expect(state.results).toHaveLength(2);
+            expect(state.results[0].status).toBe(STATUS.PASS);
+            expect(state.results[1].status).toBe(STATUS.ERROR);
+            // chain label prepended
+            expect(state.results[1].label).toEqual(["sub", "slow inner"]);
+        });
+
+        it("timeout rollback restores state inside chain", async () => {
+            const inner = CTGTest.init("inner")
+                .stage("slow", async () => { await delay(OVER_TIMEOUT); return 999; });
+
+            const state = await CTGTest.init("outer")
+                .stage("set subject", () => 42)
+                .chain("sub", inner)
+                .stage("after chain", (s) => s.subject + 1)
+                .start(0, { timeout: SHORT_TIMEOUT, haltOnFailure: false });
+
+            // subject should be 42 (set by first stage), not 999 (rolled back),
+            // then 43 from after-chain stage
+            expect(state.subject).toBe(43);
+        });
+
+        it("fast operation inside chain succeeds within timeout", async () => {
+            const inner = CTGTest.init("inner")
+                .stage("fast", () => 100);
+
+            const state = await CTGTest.init("outer")
+                .chain("sub", inner)
+                .start(0, { timeout: SHORT_TIMEOUT });
+
+            expect(state.results).toHaveLength(1);
+            expect(state.results[0].status).toBe(STATUS.PASS);
+            expect(state.subject).toBe(100);
+        });
+
+        it("timeout in nested chain halts outer pipeline with haltOnFailure", async () => {
+            const inner = CTGTest.init("inner")
+                .stage("slow", async () => { await delay(OVER_TIMEOUT); return 999; });
+
+            let afterRan = false;
+            const state = await CTGTest.init("outer")
+                .chain("sub", inner)
+                .stage("after", () => { afterRan = true; return 1; })
+                .start(0, { timeout: SHORT_TIMEOUT, haltOnFailure: true });
+
+            expect(afterRan).toBe(false);
+            expect(state.results).toHaveLength(1);
+            expect(state.results[0].status).toBe(STATUS.ERROR);
+        });
+    });
 });

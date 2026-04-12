@@ -270,6 +270,30 @@ describe("CTGTest stage operation", () => {
             expect(state.label).toBe("pipeline label");
         });
 
+        it("accepts a CTGTestState subclass instance directly", async () => {
+            class DomainState extends CTGTestState {
+                constructor(opts = {}) {
+                    super(opts);
+                    this.page = opts.page || null;
+                }
+            }
+            const input = new DomainState({ subject: 50, label: "domain", page: { url: "http://test" } });
+            const state = await CTGTest.init("subclass test")
+                .stage("read page", (s) => s.page.url)
+                .start(input);
+
+            // Same instance passed through — not wrapped
+            expect(state).toBe(input);
+            expect(state).toBeInstanceOf(DomainState);
+            expect(state).toBeInstanceOf(CTGTestState);
+            // Pipeline overwrites label
+            expect(state.label).toBe("subclass test");
+            // Domain field preserved
+            expect(state.page).toEqual({ url: "http://test" });
+            // Stage transformed subject
+            expect(state.subject).toBe("http://test");
+        });
+
         it("overwrites label even when wrapping raw value", async () => {
             const state = await CTGTest.init("my pipeline")
                 .stage("identity", (state) => state.subject)

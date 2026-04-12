@@ -154,6 +154,36 @@ describe("assert: predicate.evaluate() throws", () => {
             .start(1, { haltOnFailure: false });
         expect(state.results[0].error).toBe(thrown);
     });
+
+    it("computedValue and expectedOutcome are populated when handler succeeded but predicate threw", async () => {
+        // Handler runs fine and deposits computed value. Predicate then throws.
+        // Per design doc: "if an assert step's user callable ran cleanly but
+        // the predicate itself threw, computedValue holds the value the callable
+        // produced and expectedOutcome holds what the predicate was checking against"
+        const badPred = CTGTestPredicate.init(42, () => { throw new Error("pred crash"); });
+        const state = await CTGTest.init("pred throw fields")
+            .assert("check", (s) => s.subject * 2, badPred)
+            .start(5, { haltOnFailure: false });
+
+        const result = state.results[0];
+        expect(result.status).toBe(STATUS.ERROR);
+        expect(result.computedValue).toBe(10);        // handler produced 5 * 2 = 10
+        expect(result.expectedOutcome).toBe(42);       // predicate's expectedOutcome
+        expect(result.error.message).toBe("pred crash");
+    });
+
+    it("computedValue and expectedOutcome are VOID when handler threw before producing a value", async () => {
+        // Handler throws before returning — no computed value, no predicate evaluation.
+        const pred = equals(1);
+        const state = await CTGTest.init("handler throw fields")
+            .assert("check", () => { throw new Error("handler crash"); }, pred)
+            .start(1, { haltOnFailure: false });
+
+        const result = state.results[0];
+        expect(result.status).toBe(STATUS.ERROR);
+        expect(result.computedValue).toBe(undefined);
+        expect(result.expectedOutcome).toBe(undefined);
+    });
 });
 
 // ── 6. Subject Unchanged ───────────────────────────────────────────

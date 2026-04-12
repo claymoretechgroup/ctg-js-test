@@ -517,4 +517,74 @@ describe("pipeline skip", () => {
             expect(state.results[1].status).toBe(STATUS.PASS);
         });
     });
+
+    // ── 11. Pipeline-Local Skip Scope ─────────────────────────────────
+
+    describe("skip scope is pipeline-local", () => {
+
+        it("outer skip cannot target a step inside a chained sub-pipeline", async () => {
+            const inner = CTGTest.init("inner")
+                .stage("inner step", (s) => s.subject + 1);
+
+            // "inner step" exists in the inner pipeline, not the outer.
+            // The outer skip targets "inner step" which should fail validation
+            // because the target doesn't exist in the outer pipeline's namespace.
+            const pipeline = CTGTest.init("outer")
+                .skip("inner step", () => true)
+                .chain("sub", inner);
+
+            await expect(pipeline.start(1)).rejects.toThrow();
+            try {
+                await pipeline.start(1);
+            } catch (err) {
+                expect(err.type).toBe("INVALID_SKIP");
+                expect(err.code).toBe(1004);
+            }
+        });
+
+        it("inner skip cannot target a step in the outer pipeline", async () => {
+            // "outer step" exists in the outer pipeline, not the inner.
+            const inner = CTGTest.init("inner")
+                .skip("outer step", () => true)
+                .stage("inner stage", (s) => s.subject);
+
+            const pipeline = CTGTest.init("outer")
+                .stage("outer step", (s) => s.subject)
+                .chain("sub", inner);
+
+            // Inner pipeline validation should fail — "outer step" not found
+            await expect(pipeline.start(1)).rejects.toThrow();
+            try {
+                await pipeline.start(1);
+            } catch (err) {
+                expect(err.type).toBe("INVALID_SKIP");
+                expect(err.code).toBe(1004);
+            }
+        });
+
+        it("same label in outer and inner pipelines are independent namespaces", async () => {
+            // Both pipelines have a step called "check", but they're separate.
+            // Outer skip targets outer "check", inner "check" runs unaffected.
+            const inner = CTGTest.init("inner")
+                .assert("check", (s) => s.subject, equals(10));
+
+            const state = await CTGTest.init("outer")
+                .stage("setup", () => 10)
+                .skip("check", () => true)
+                .assert("check", (s) => s.subject, equals(10))
+                .chain("sub", inner)
+                .start(5, { haltOnFailure: false });
+
+            // Outer "check" is skipped, inner "check" runs and passes
+            const outerCheck = state.results.find(
+                r => r.label.length === 1 && r.label[0] === "check"
+            );
+            const innerCheck = state.results.find(
+                r => r.label.length === 2 && r.label[1] === "check"
+            );
+            expect(outerCheck.skipped).toBe(true);
+            expect(innerCheck.skipped).toBe(false);
+            expect(innerCheck.status).toBe(STATUS.PASS);
+        });
+    });
 });
